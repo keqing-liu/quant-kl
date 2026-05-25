@@ -42,6 +42,19 @@ def calculate_indicators(filepath):
         - 2 * df["STD20"]
     )
 
+    df["VOL5"] = (
+        df["volume"]
+        .rolling(window=5)
+        .mean()
+    )
+
+    df["VOL20"] = (
+        df["volume"]
+        .rolling(window=20)
+        .mean()
+    )
+
+
     # =========================
     # KDJ
     # =========================

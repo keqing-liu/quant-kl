@@ -39,6 +39,9 @@ def check_signal(filepath):
     if latest["MA20"] > latest["MA60"]:
         score += 1
 
+    if latest["volume"]>latest["VOL5"]:
+        score += 1
+    
     # =========================
     # 输出包含分数的字典
     # =========================

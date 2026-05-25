@@ -30,6 +30,8 @@ def print_summary(filepath):
     columns = [
         "date",
         "close",
+        "VOL5",
+        "VOL20",
         "MA20",
         "MA60",
         "BOLL_UPPER",
