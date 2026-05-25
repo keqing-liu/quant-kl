@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 # =========================
@@ -19,12 +20,29 @@ def calculate_indicators(filepath):
     df["date"] = pd.to_datetime(df["date"])
 
     # =========================
-    # MA20 & MA60
+    # MA20 / MA50 / MA60
     # =========================
 
-    df["MA20"] = df["close"].rolling(window=20).mean()
+    df["MA20"] = (df["close"].rolling(window=20).mean())
 
-    df["MA60"] = df["close"].rolling(window=60).mean()
+    df["MA50"] = (df["close"].rolling(window=50).mean())
+
+    df["MA60"] = (df["close"].rolling(window=60).mean())
+
+    # =========================
+    # Daily Return
+    # =========================
+
+    df["RETURN"] = (df["close"].pct_change())
+
+    # =========================
+    # 20日波动率
+    # =========================
+
+    # 日收益率标准差
+    df["VOLATILITY20"] = (df["RETURN"].rolling(window=20).std())
+
+    df["VOLATILITY252"] = (df["RETURN"].rolling(window=252).std())
 
     # =========================
     # Bollinger Bands
