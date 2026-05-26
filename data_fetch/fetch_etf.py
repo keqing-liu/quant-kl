@@ -1,18 +1,17 @@
+"""ETF 数据下载函数。
+
+akshare 是常用的中文金融数据接口库；这里用它从新浪接口取 ETF 历史行情。
+"""
+
 import akshare as ak
-import pandas as pd
-from pathlib import Path
 
-def fetch_etf(symbol):
 
-    data_dir = Path('data')
-    data_dir.mkdir(exist_ok=True)
+def download_etf_data(symbol):
 
+    # fund_etf_hist_sina 返回一个 pandas DataFrame，通常包含 date/open/high/low/close/volume。
     df = ak.fund_etf_hist_sina(
         symbol=symbol
     )
 
-    filename = f"data/{symbol}.csv"
-
-    df.to_csv(filename, index=False)
-
-    print(f"{symbol} ETF 数据保存完成")
+    # 只负责“下载并返回”，不在这里保存文件或写数据库，职责更清晰。
+    return df

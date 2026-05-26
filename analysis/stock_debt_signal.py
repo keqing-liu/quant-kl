@@ -1,3 +1,5 @@
+"""股债轮动信号：用简单规则判断股票 ETF 是否优于债券 ETF。"""
+
 import pandas as pd
 from pathlib import Path
 
@@ -5,29 +7,30 @@ from pathlib import Path
 # 判断ETF值得关注的打分系统
 # =========================
 def check_signal(filepath):
+    # 从指标文件名得到标的代码。
     symbol = filepath.stem.replace("_indicators", "")
 
-    # 读取数据
+    # 读取 CSV，并确保最后一行是最新日期。
     df = pd.read_csv(filepath)
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date")
 
     latest = df.iloc[-1]
 
+    # 满足一个条件加 1 分；这里最高分是 2。
     score = 0
 
     # =========================
     # 打分规则
     # =========================
-    # 如果收盘价高于50日均价 分数加1    
+    # 如果收盘价高于 50 日均价，说明价格处在中期趋势线上方。
     if latest["close"] > latest["MA50"]:
         score += 1
 
-    # 如果20日波动率小于年波动率，分数加1
+    # 如果 20 日波动率小于 252 日波动率，说明近期波动相对更平稳。
     if latest["VOLATILITY20"] <= latest["VOLATILITY252"]:
         score += 1
 
-    
     # =========================
     # 输出包含分数的字典
     # =========================
@@ -46,11 +49,13 @@ def check_signal(filepath):
 # 主程序
 # =========================
 if __name__ == "__main__":
+    # 这里只分析指定标的；以后可以把 target_symbols 扩展成多个。
     data_dir = Path("data")
     target_symbols = [
         "sh510310"
     ]
 
+    # 用列表推导式生成文件路径列表。
     indicator_files = [
         data_dir / f"{symbol}_indicators.csv"
         for symbol in target_symbols
@@ -75,10 +80,10 @@ if __name__ == "__main__":
 
     signal_df = pd.DataFrame(signals)
 
-    # 按 Score 排序（从高到低）
+    # 按 Score 排序（从高到低）。
     signal_df = signal_df.sort_values("Score", ascending=False)
 
-    # 显示前 10 或全部
+    # 打印完整表格，index=False 表示不显示 pandas 行号。
     print(signal_df.to_string(index=False))
 
     print("=" * 120)

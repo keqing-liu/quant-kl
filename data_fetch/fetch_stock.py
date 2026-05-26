@@ -1,15 +1,17 @@
+"""股票数据下载脚本函数。
+
+当前函数把单只 A 股的历史行情下载到 data/{symbol}.csv。
+"""
+
 import akshare as ak
-import pandas as pd
 
-def fetch_stock(symbol):
+def download_stock_data(symbol):
 
+    # stock_zh_a_daily 返回日线行情；adjust="qfq" 表示前复权价格。
     df = ak.stock_zh_a_daily(
         symbol=symbol,
         adjust="qfq"
     )
 
-    filename = f"data/{symbol}.csv"
-
-    df.to_csv(filename, index=False)
-
-    print(f"{symbol} 股票数据保存完成")
+    # 只负责“下载并返回”，不在这里保存文件或写数据库，职责更清晰。
+    return df
