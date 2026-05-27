@@ -1,169 +1,280 @@
-"""绘制 ETF 技术指标图。
+"""从 SQLite 数据库读取 ETF / 股票技术指标，并绘制技术指标图。
 
-matplotlib 的核心思想是：先创建画布 figure，再创建子图 axes，
-然后把不同曲线 plot 到对应的 axes 上。
+matplotlib 的核心思想是：
+1. 创建 figure（画布）
+2. 创建 subplot（子图）
+3. 在不同 axes 上 plot 不同曲线
+
+这里我们会：
+- 从 SQLite 的 indicators 表读取指标
+- 从 price_data 表读取 close 价格
+- 绘制：
+    1. 价格 + 均线 + 布林带
+    2. KDJ
+    3. CCI
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
-from pathlib import Path
+
+from database.db_utils import get_connection
+
 
 # =========================
-# 读取指标文件
+# 从 SQLite 读取指标数据
 # =========================
 
-# 要画图的 ETF 代码。
-symbol = "sh510310"
+def load_indicator_data(symbol):
 
-# 指标文件路径。
-filepath = Path(f"data/{symbol}_indicators.csv")
+    # 获取数据库连接。
+    conn = get_connection()
 
-# 读取指标数据。
-df = pd.read_csv(filepath)
+    # 从 indicators 表读取技术指标。
+    # 同时 JOIN price_data 表读取 close 收盘价。
+    #
+    # JOIN 条件：
+    # symbol 和 date 必须同时一致。
+    #
+    # ORDER BY date：
+    # 保证时间顺序从旧到新。
+    df = pd.read_sql("""
 
-# 日期转换，matplotlib 才能把横轴按时间正确显示。
-df["date"] = pd.to_datetime(df["date"])
+        SELECT
 
-# =========================
-# 创建画布
-# =========================
+            i.symbol,
+            i.date,
 
-# figsize 单位是英寸；这里创建一个 16 x 12 的大画布。
-fig = plt.figure(figsize=(16, 12))
+            p.close,
 
-# =========================
-# 子图1：价格 + 均线 + 布林带
-# =========================
+            i.MA20,
+            i.MA60,
 
-# 3 行 1 列的第 1 个子图。
-ax1 = plt.subplot(3, 1, 1)
+            i.BOLL_UPPER,
+            i.BOLL_LOWER,
 
-# 价格曲线。
-ax1.plot(
-    df["date"],
-    df["close"],
-    label="Close"
-)
+            i.K,
+            i.D,
+            i.J,
 
-# 20 日均线。
-ax1.plot(
-    df["date"],
-    df["MA20"],
-    label="MA20"
-)
+            i.CCI
 
-# 60 日均线。
-ax1.plot(
-    df["date"],
-    df["MA60"],
-    label="MA60"
-)
+        FROM indicators AS i
 
-# 布林上轨。
-ax1.plot(
-    df["date"],
-    df["BOLL_UPPER"],
-    linestyle="--",
-    label="BOLL Upper"
-)
+        JOIN price_data AS p
 
-# 布林下轨。
-ax1.plot(
-    df["date"],
-    df["BOLL_LOWER"],
-    linestyle="--",
-    label="BOLL Lower"
-)
+        ON i.symbol = p.symbol
+        AND i.date = p.date
 
-ax1.set_title(f"{symbol} Price & Bollinger Bands")
+        WHERE i.symbol = ?
 
-# legend 根据每条线的 label 显示图例。
-ax1.legend()
+        ORDER BY i.date
 
-# grid(True) 打开网格线，便于读数。
-ax1.grid(True)
+    """, conn, params=(symbol,))
+
+    conn.close()
+
+    return df
+
 
 # =========================
-# 子图2：KDJ
+# 绘制技术指标图
 # =========================
 
-# 3 行 1 列的第 2 个子图：KDJ。
-ax2 = plt.subplot(3, 1, 2)
+def plot_indicators(symbol):
 
-# K、D、J 三条线共用同一个坐标轴。
-ax2.plot(
-    df["date"],
-    df["K"],
-    label="K"
-)
+    print(f"开始绘制 {symbol} 技术指标图...")
 
-ax2.plot(
-    df["date"],
-    df["D"],
-    label="D"
-)
+    # 从数据库读取指标数据。
+    df = load_indicator_data(symbol)
 
-ax2.plot(
-    df["date"],
-    df["J"],
-    label="J"
-)
+    # 如果没有数据，直接退出。
+    if df.empty:
 
-# 80 和 20 常用作 KDJ 的高低参考线。
-ax2.axhline(
-    80,
-    linestyle="--"
-)
+        print(f"{symbol} 没有指标数据")
 
-ax2.axhline(
-    20,
-    linestyle="--"
-)
+        return
 
-ax2.set_title("KDJ")
+    # SQLite 中 date 通常是字符串；
+    # 转 datetime 后 matplotlib 才能正确显示时间轴。
+    df["date"] = pd.to_datetime(df["date"])
 
-ax2.legend()
+    # =========================
+    # matplotlib / pandas 兼容处理
+    # =========================
 
-ax2.grid(True)
+    # 新版 pandas 的 Series 不再支持某些 matplotlib 内部操作。
+    #
+    # 所以：
+    # 把 pandas Series 转成 numpy array，
+    # 能避免：
+    #
+    # ValueError:
+    # Multi-dimensional indexing is no longer supported
+    #
+    # x 作为横轴时间序列。
+    x = df["date"].to_numpy()
+
+    # =========================
+    # 创建画布
+    # =========================
+
+    # figsize 单位是英寸。
+    # 这里创建一个较大的画布。
+    fig = plt.figure(figsize=(16, 12))
+
+    # =========================
+    # 子图1：
+    # 价格 + 均线 + 布林带
+    # =========================
+
+    # 3 行 1 列中的第 1 个子图。
+    ax1 = plt.subplot(3, 1, 1)
+
+    # 收盘价。
+    ax1.plot(
+        x,
+        df["close"].to_numpy(),
+        label="Close"
+    )
+
+    # 20 日均线。
+    ax1.plot(
+        x,
+        df["MA20"].to_numpy(),
+        label="MA20"
+    )
+
+    # 60 日均线。
+    ax1.plot(
+        x,
+        df["MA60"].to_numpy(),
+        label="MA60"
+    )
+
+    # 布林上轨。
+    ax1.plot(
+        x,
+        df["BOLL_UPPER"].to_numpy(),
+        linestyle="--",
+        label="BOLL Upper"
+    )
+
+    # 布林下轨。
+    ax1.plot(
+        x,
+        df["BOLL_LOWER"].to_numpy(),
+        linestyle="--",
+        label="BOLL Lower"
+    )
+
+    # 图标题。
+    ax1.set_title(
+        f"{symbol} Price & Bollinger Bands"
+    )
+
+    # 显示图例。
+    ax1.legend()
+
+    # 打开网格。
+    ax1.grid(True)
+
+    # =========================
+    # 子图2：KDJ
+    # =========================
+
+    ax2 = plt.subplot(3, 1, 2)
+
+    # K线。
+    ax2.plot(
+        x,
+        df["K"].to_numpy(),
+        label="K"
+    )
+
+    # D线。
+    ax2.plot(
+        x,
+        df["D"].to_numpy(),
+        label="D"
+    )
+
+    # J线。
+    ax2.plot(
+        x,
+        df["J"].to_numpy(),
+        label="J"
+    )
+
+    # KDJ 常见超买参考线。
+    ax2.axhline(
+        80,
+        linestyle="--"
+    )
+
+    # KDJ 常见超卖参考线。
+    ax2.axhline(
+        20,
+        linestyle="--"
+    )
+
+    ax2.set_title("KDJ")
+
+    ax2.legend()
+
+    ax2.grid(True)
+
+    # =========================
+    # 子图3：CCI
+    # =========================
+
+    ax3 = plt.subplot(3, 1, 3)
+
+    # CCI 曲线。
+    ax3.plot(
+        x,
+        df["CCI"].to_numpy(),
+        label="CCI"
+    )
+
+    # +100 常作为强势参考线。
+    ax3.axhline(
+        100,
+        linestyle="--"
+    )
+
+    # -100 常作为弱势参考线。
+    ax3.axhline(
+        -100,
+        linestyle="--"
+    )
+
+    ax3.set_title("CCI")
+
+    ax3.legend()
+
+    ax3.grid(True)
+
+    # =========================
+    # 自动调整布局
+    # =========================
+
+    # 防止标题、坐标轴文字重叠。
+    plt.tight_layout()
+
+    # =========================
+    # 显示图像
+    # =========================
+
+    plt.show()
+
+    print(f"{symbol} 技术指标图绘制完成")
+
 
 # =========================
-# 子图3：CCI
+# 主程序入口
 # =========================
 
-# 3 行 1 列的第 3 个子图：CCI。
-ax3 = plt.subplot(3, 1, 3)
+if __name__ == "__main__":
 
-ax3.plot(
-    df["date"],
-    df["CCI"],
-    label="CCI"
-)
-
-# CCI 的 +/-100 常被用作强弱区间参考线。
-ax3.axhline(
-    100,
-    linestyle="--"
-)
-
-ax3.axhline(
-    -100,
-    linestyle="--"
-)
-
-ax3.set_title("CCI")
-
-ax3.legend()
-
-ax3.grid(True)
-
-# =========================
-# 自动调整布局，减少标题和坐标轴文字重叠。
-# =========================
-
-plt.tight_layout()
-
-# =========================
-# 显示图像；在脚本环境中会弹出绘图窗口。
-# =========================
-
-plt.show()
+    # 修改这里即可切换不同 ETF / 股票。
+    plot_indicators("sh510310")

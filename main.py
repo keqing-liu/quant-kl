@@ -17,6 +17,8 @@ from analysis.indicators import (
     run_indicator_analysis
 )
 
+from analysis.summary import run_summary
+
 # 第一步：确保数据库和需要的表已经准备好。
 initialize_database()
 
@@ -49,3 +51,7 @@ for symbol in stock_list:
 # 计算技术指标
 
 run_indicator_analysis()
+
+# 打印几天的技术指标
+
+run_summary()

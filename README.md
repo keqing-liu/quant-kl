@@ -1,252 +1,292 @@
 # quant-kl
 
-A personal quantitative finance research project for:
+一个简化的私人量化交易研究系统，主要用于下载中国市场 ETF / A 股行情、保存到本地 SQLite 数据库、计算技术指标、生成摘要、绘图，并验证简单的股债轮动策略。
 
-- downloading Chinese market data
-- organizing local financial datasets
-- visualizing ETF and stock price movements
-- developing future quantitative trading strategies
+> 本项目用于个人学习和研究，不构成任何投资建议。
 
-The project currently focuses on:
+## 功能概览
 
-- Chinese ETFs
-- A-share stocks
-- local CSV-based data storage
-- market visualization
+- 使用 `akshare` 下载 ETF 和 A 股历史行情
+- 使用 SQLite (`database/quant.db`) 本地存储行情和技术指标
+- 支持按 `config/watchlist.py` 批量更新关注标的
+- 计算均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等指标
+- 输出最近交易日技术指标摘要和简单打分结果
+- 绘制 K 线图、均线、布林带、KDJ、CCI 等图表
+- 回测沪深 300 ETF 与债券 ETF 的简单动态轮动策略
 
-Future plans include:
-
-- technical indicators
-- backtesting systems
-- portfolio analysis
-- database integration
-- automated market updates
-- strategy research
-
----
-
-# Project Structure
+## 项目结构
 
 ```text
 quant-kl/
-│
+├── main.py
+├── README.md
+├── .gitignore
+├── analysis/
+│   ├── __init__.py
+│   ├── indicators.py
+│   ├── summary.py
+│   ├── scoring2.py
+│   ├── scoring_benchmark.py
+│   └── bond_stock_yearly_return.py
+├── backtest/
+│   ├── __init__.py
+│   ├── strategy_stock300bond.py
+│   └── strategy_stock300bond_multi_start.py
+├── config/
+│   ├── __init__.py
+│   └── watchlist.py
+├── data/
+│   └── *.csv
 ├── data_fetch/
 │   ├── __init__.py
 │   ├── fetch_etf.py
 │   ├── fetch_stock.py
 │   └── update_market_data.py
-│
-├── visualization/
+├── data_manager/
 │   ├── __init__.py
-│   └── plot_etf.py
-│
-├── config/
-│   ├── __init__.py
-│   └── watchlist.py
-│
-├── data/
-│   ├── etf/
-│   └── stock/
-│
-├── .gitignore
-├── README.md
+│   └── data_manager.py
+├── database/
+│   ├── __pycache__/
+│   ├── db_utils.py
+│   └── quant.db
+└── visualization/
+    ├── __init__.py
+    ├── plot_etf.py
+    └── plot_indicators.py
 ```
 
----
+## 文件说明
 
-# Features
+### 根目录
 
-## Market Data Download
+| 文件 | 用途 |
+| --- | --- |
+| `main.py` | 项目主入口。初始化数据库，读取 watchlist，更新 ETF / 股票行情，计算技术指标，并输出摘要。 |
+| `README.md` | 项目说明文档。 |
+| `.gitignore` | Git 忽略规则，忽略缓存、虚拟环境、本地数据、数据库和日志文件。 |
 
-The project supports downloading:
+### `config/`
 
-- ETF historical data
-- A-share stock historical data
+| 文件 | 用途 |
+| --- | --- |
+| `watchlist.py` | 维护关注标的列表。`WATCHLIST["ETF"]` 保存 ETF 代码，`WATCHLIST["STOCK"]` 保存股票代码。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
 
-Current data source:
+### `data_fetch/`
 
-- Sina Finance (AKShare interface)
+| 文件 | 用途 |
+| --- | --- |
+| `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
+| `fetch_stock.py` | 使用 `akshare.stock_zh_a_daily` 下载单只 A 股前复权日线行情。 |
+| `update_market_data.py` | 批量下载 watchlist 中的 ETF / 股票数据的脚本。当前主流程已由 `main.py` + `DataManager` 接管。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
 
-Downloaded data is stored locally as CSV files.
+### `data_manager/`
 
----
+| 文件 | 用途 |
+| --- | --- |
+| `data_manager.py` | 数据管理层。负责调用下载函数、判断数据库中最新日期、过滤增量数据，并写入 SQLite 的 `price_data` 表。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
 
-## Watchlist System
+### `database/`
 
-Assets are managed through:
+| 文件 | 用途 |
+| --- | --- |
+| `db_utils.py` | SQLite 工具函数。包含数据库连接、初始化 `indicators` 表、查询单个标的最新行情日期等功能。 |
+| `quant.db` | 本地 SQLite 数据库文件，保存行情和指标数据。通常属于本地运行产物，不建议提交到公开仓库。 |
 
-```python
-WATCHLIST = {
-    "ETF": [
-        "sh510310",
-        "sh510100"
-    ],
+当前数据库主要包含：
 
-    "STOCK": [
-        "sh600519"
-    ]
-}
+| 表名 | 内容 |
+| --- | --- |
+| `price_data` | 原始行情数据：`symbol`、`date`、`open`、`high`、`low`、`close`、`volume`。 |
+| `indicators` | 技术指标数据：均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等。 |
+
+### `analysis/`
+
+| 文件 | 用途 |
+| --- | --- |
+| `indicators.py` | 从 `price_data` 读取行情，计算技术指标，并写入 `indicators` 表。 |
+| `summary.py` | 读取最近 5 个交易日的价格和指标，输出终端摘要表。 |
+| `scoring2.py` | 基于 KDJ、CCI、布林带、均线和成交量等条件，对标的进行短期关注度打分。 |
+| `scoring_benchmark.py` | 用趋势和波动率规则，对指定 ETF 最近 5 个交易日进行打分。 |
+| `bond_stock_yearly_return.py` | 计算债券 ETF、沪深 300 ETF、中证 1000 ETF 等标的最近 10 个自然年的年度收益率。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
+
+### `backtest/`
+
+| 文件 | 用途 |
+| --- | --- |
+| `strategy_stock300bond.py` | 单一起始日期的沪深 300 ETF / 债券 ETF 动态轮动回测。 |
+| `strategy_stock300bond_multi_start.py` | 多个起始年份的股债轮动回测，用于观察策略在不同起点下的表现。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
+
+### `visualization/`
+
+| 文件 | 用途 |
+| --- | --- |
+| `plot_etf.py` | 从 SQLite 读取行情数据，使用 `mplfinance` 绘制 K 线、成交量和均线图。 |
+| `plot_indicators.py` | 从 SQLite 读取价格和指标数据，使用 `matplotlib` 绘制价格、均线、布林带、KDJ 和 CCI。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
+
+### `data/`
+
+`data/` 目录中保存了一些历史 CSV 文件和指标 CSV 文件，例如：
+
+```text
+data/sh510310.csv
+data/sh510310_indicators.csv
 ```
 
-This allows batch downloading and future automated updates.
+当前主流程以 SQLite 为核心，CSV 文件更像是历史数据备份或早期开发阶段的本地产物。`.gitignore` 已配置忽略 `data/` 和 `*.csv`。
 
----
+## 安装
 
-## Visualization
-
-The project currently supports:
-
-- candlestick charts
-- moving averages
-- volume visualization
-
-Visualization is implemented with:
-
-- pandas
-- matplotlib
-- mplfinance
-
----
-
-# Installation
-
-## Clone the repository
+建议使用 Python 3.10+ 或 Python 3.11。
 
 ```bash
 git clone <your-repository-url>
 cd quant-kl
 ```
 
----
-
-## Create a virtual environment (recommended)
-
-Using conda:
+创建并激活虚拟环境：
 
 ```bash
-conda create -n quant python=3.11
-conda activate quant
+python -m venv venv
+source venv/bin/activate
 ```
 
----
-
-## Install dependencies
+安装依赖：
 
 ```bash
-pip install -r requirements.txt
+pip install akshare pandas numpy matplotlib mplfinance
 ```
 
-Or manually:
+## 快速开始
+
+运行主流程：
 
 ```bash
-pip install akshare pandas matplotlib mplfinance numpy==1.26.4
+python main.py
 ```
 
----
+该命令会执行：
 
-# How to Update Market Data
+1. 初始化 SQLite 数据库
+2. 读取 `config/watchlist.py`
+3. 更新 ETF 和股票行情到 `price_data`
+4. 计算技术指标并写入 `indicators`
+5. 输出最近 5 个交易日的指标摘要
 
-Run:
+## 常用命令
+
+计算或刷新技术指标：
 
 ```bash
-python -m data_fetch.update_market_data
+python -m analysis.indicators
 ```
 
-This will:
+输出最近 5 个交易日摘要：
 
-- read the watchlist
-- download ETF data
-- download stock data
-- save CSV files into the local data folder
+```bash
+python -m analysis.summary
+```
 
----
+运行短期技术指标打分：
 
-# How to Plot ETF Data
+```bash
+python -m analysis.scoring2
+```
 
-Run:
+运行趋势 / 波动率打分示例：
+
+```bash
+python -m analysis.scoring_benchmark
+```
+
+查看最近 10 年自然年度收益率：
+
+```bash
+python -m analysis.bond_stock_yearly_return
+```
+
+绘制 K 线图：
 
 ```bash
 python -m visualization.plot_etf
 ```
 
-This will generate:
+绘制技术指标图：
 
-- ETF candlestick chart
-- moving averages
-- trading volume chart
+```bash
+python -m visualization.plot_indicators
+```
 
----
+运行单一起始日期股债轮动回测：
 
-# Data Storage
+```bash
+python -m backtest.strategy_stock300bond
+```
 
-Downloaded CSV files are stored under:
+运行多起始年份股债轮动回测：
+
+```bash
+python -m backtest.strategy_stock300bond_multi_start
+```
+
+## Watchlist 配置
+
+关注标的在 `config/watchlist.py` 中维护：
+
+```python
+WATCHLIST = {
+    "ETF": [
+        "sh510310",
+        "sh510100",
+        "sh511010",
+    ],
+    "STOCK": [
+        "sh600519",
+    ],
+}
+```
+
+添加或删除标的后，重新运行 `python main.py` 即可按新列表更新数据。
+
+## 数据流
 
 ```text
-data/
-├── etf/
-└── stock/
+config/watchlist.py
+        |
+        v
+data_fetch/fetch_etf.py / data_fetch/fetch_stock.py
+        |
+        v
+data_manager/data_manager.py
+        |
+        v
+database/quant.db: price_data
+        |
+        v
+analysis/indicators.py
+        |
+        v
+database/quant.db: indicators
+        |
+        +--> analysis/summary.py
+        +--> analysis/scoring2.py
+        +--> analysis/scoring_benchmark.py
+        +--> visualization/
+        +--> backtest/
 ```
 
-Example:
+## 注意事项
 
-```text
-data/etf/sh510310.csv
-data/stock/sh600519.csv
-```
+- 本项目依赖 `akshare` 的数据接口，数据可用性和字段格式可能随上游接口变化。
+- `database/quant.db`、`data/`、`*.csv` 属于本地数据文件，通常不应提交到公开仓库。
+- `database/db_utils.py` 当前负责初始化 `indicators` 表；`price_data` 表需要数据库中已存在，或在后续开发中补充统一建表逻辑。
+- `data_fetch/update_market_data.py` 中导入的函数名与当前 `fetch_etf.py` / `fetch_stock.py` 中的 `download_*` 函数名不完全一致，推荐优先使用 `python main.py` 作为主入口。
 
----
+## 免责声明
 
-# Recommended .gitignore
-
-```gitignore
-__pycache__/
-*.pyc
-
-data/
-*.csv
-
-.env
-venv/
-```
-
----
-
-# Current Development Stage
-
-The project is currently focused on:
-
-## Phase 1 — Data Infrastructure
-
-- [x] market data download
-- [x] watchlist management
-- [x] local CSV storage
-- [x] modular project structure
-
-## Phase 2 — Visualization
-
-- [x] ETF candlestick chart
-- [ ] technical indicators
-- [ ] multi-asset comparison
-
-## Phase 3 — Quantitative Research
-
-Planned:
-
-- moving average strategies
-- momentum strategies
-- ETF rotation
-- backtesting engine
-
----
-
-# Disclaimer
-
-This project is for educational and research purposes only.
-
-It does not constitute financial or investment advice.
-
----
-
-# Author
-
-Keqing Liu
+本仓库仅用于个人量化研究、编程练习和策略验证。所有输出、指标、评分和回测结果都不代表未来收益，也不构成任何投资建议。
