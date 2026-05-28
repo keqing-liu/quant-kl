@@ -135,3 +135,16 @@ CREATE TABLE IF NOT EXISTS data_update_log (
 
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+
+-- =========================================================
+-- 5. 数据库结构版本表
+-- =========================================================
+-- 每一行代表一个已经成功执行的 schema 版本。
+-- initialize_database() 会读取这里的最大 version，
+-- 再决定是否需要对旧数据库执行迁移。
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

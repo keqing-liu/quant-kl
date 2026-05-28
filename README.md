@@ -98,8 +98,8 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `schema.sql` | SQLite 建表脚本。统一定义 `price_data`、`indicators`、`asset_info`、`data_update_log` 等表。 |
-| `db_utils.py` | SQLite 工具函数。包含数据库连接、执行 `schema.sql` 初始化、查询单个标的最新行情日期、写入更新日志等功能。 |
+| `schema.sql` | SQLite 建表脚本。统一定义 `price_data`、`indicators`、`asset_info`、`data_update_log`、`schema_version` 等表。 |
+| `db_utils.py` | SQLite 工具函数。包含数据库连接、执行 `schema.sql` 初始化、简单版本迁移、查询单个标的最新行情日期、写入更新日志等功能。 |
 | `init_asset_info.py` | 初始化或刷新 `asset_info` 表中的资产基础信息。 |
 | `data_quality_check.py` | 运行简单数据质量检查，包括重复日期、OHLC 价格逻辑、缺失价格和成交量检查。 |
 | `quant.db` | 本地 SQLite 数据库文件，保存行情和指标数据。通常属于本地运行产物，不建议提交到公开仓库。 |
@@ -112,6 +112,7 @@ quant-kl/
 | `indicators` | 技术指标数据：均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等。 |
 | `asset_info` | 资产基础信息：名称、资产类型、资产类别、市场、数据源、基准和备注等。 |
 | `data_update_log` | 数据更新日志：每次更新的起止日期、下载行数、实际插入行数、状态和错误信息等。 |
+| `schema_version` | 数据库结构版本记录，用于判断旧数据库是否需要执行迁移。 |
 
 ### `analysis/`
 
@@ -325,8 +326,9 @@ database/quant.db: price_data
 
 - 本项目依赖 `akshare` 的数据接口，数据可用性和字段格式可能随上游接口变化。
 - `database/quant.db`、`data/`、`*.csv` 属于本地数据文件，通常不应提交到公开仓库。
-- 新建数据库会通过 `database/schema.sql` 创建完整表结构；`initialize_database()` 使用 `CREATE TABLE IF NOT EXISTS`，不会自动迁移已经存在的旧表。
-- 如果本地已有旧版 `database/quant.db`，它不会自动补齐新 schema 中的 `created_at`、`updated_at` 或外键约束。如需完全采用新结构，建议先备份旧数据库，再重建数据库或后续补充迁移脚本。
+- 新建数据库会通过 `database/schema.sql` 创建完整表结构；旧数据库会通过 `schema_version` 执行简单版本迁移。
+- 当前 v1 迁移会为旧版 `price_data` 和 `indicators` 补齐 `created_at`、`updated_at` 字段，并记录版本号。
+- 第一版迁移机制保持简单，不重建历史表，也不会为已有旧表补复合外键约束。如需完全采用最新约束，建议先备份旧数据库，再重建数据库或后续补充更完整的迁移脚本。
 - `asset_info` 暂时由 `database/init_asset_info.py` 手工维护，不从 `akshare` 自动同步。
 - `data_fetch/update_market_data.py` 中导入的函数名与当前 `fetch_etf.py` / `fetch_stock.py` 中的 `download_*` 函数名不完全一致，推荐优先使用 `python main.py` 作为主入口。
 
