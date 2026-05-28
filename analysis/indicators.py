@@ -228,7 +228,6 @@ def save_indicators(indicator_df):
     conn = get_connection()
     cursor = conn.cursor()
 
-    # INSERT OR REPLACE：如果主键 (symbol, date) 已存在，就用新结果覆盖旧结果。
     sql = """
     INSERT OR REPLACE INTO indicators (
         symbol,
@@ -256,8 +255,17 @@ def save_indicators(indicator_df):
 
         CCI
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (
+        ?, ?,
+        ?, ?, ?, ?,
+        ?, ?,
+        ?, ?, ?,
+        ?, ?,
+        ?, ?, ?, ?,
+        ?
+    )
     """
+
 
     # itertuples 比逐行 iloc 更适合批量写入；name=None 返回普通元组。
     data = list(
@@ -278,7 +286,7 @@ def save_indicators(indicator_df):
 
 def run_indicator_analysis():
 
-    # 先确保 indicators 表存在。
+    # 先确保 price_data 和 indicators 等基础表存在。
     initialize_database()
 
     # 从 price_data 表自动发现要计算的标的。
