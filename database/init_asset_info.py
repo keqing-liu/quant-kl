@@ -202,7 +202,7 @@ ASSETS = [
 def init_asset_info():
     """把 ASSETS 中的资产基础信息写入 asset_info 表。"""
 
-    # 确保 schema.sql 中定义的表已经创建。
+    # 确保数据库基础表结构已经创建。
     initialize_database()
 
     conn = get_connection()

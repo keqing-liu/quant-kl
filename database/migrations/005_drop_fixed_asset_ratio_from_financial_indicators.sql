@@ -1,0 +1,6 @@
+-- Migration 005
+-- 删除 financial_indicators.fixed_asset_ratio。
+-- SQLite 不支持 DROP COLUMN IF EXISTS，字段存在性检查由 db_utils.py 完成。
+--
+-- 删除原因：AkShare 财报接口中大量股票没有稳定提供该字段。
+-- 与其长期保存一列高缺失率字段，不如从核心 schema 中移除。

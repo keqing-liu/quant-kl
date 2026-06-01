@@ -7,14 +7,19 @@ SQLite 是一个本地文件型数据库，这里的数据库文件是 database/
 import sqlite3
 from pathlib import Path
 
-# 数据库文件路径；Path("database/quant.db") 是相对项目根目录的路径。
-DB_PATH = Path("database/quant.db")
+# 所有数据库相关文件都基于当前文件位置推导，避免依赖运行命令时的工作目录。
+DATABASE_DIR = Path(__file__).resolve().parent
+DB_PATH = DATABASE_DIR / "quant.db"
 
-# schema.sql 放在 database/ 目录下，集中管理建表语句。
-SCHEMA_PATH = Path("database/schema.sql")
+# 这里刻意把“完整 schema”和“增量 migration”拆开：
+# 1. base.sql: 新建数据库时，一次性创建当前最新版表结构。
+# 2. migrations/: 已有旧数据库时，按 schema_version 一步步升级。
+BASE_SCHEMA_PATH = DATABASE_DIR / "schema" / "base.sql"
+MIGRATIONS_DIR = DATABASE_DIR / "migrations"
 
 # 当前代码支持的数据库结构版本。
-CURRENT_SCHEMA_VERSION = 1
+# 后续每新增一个 migration 文件，都要同步递增这个版本号。
+CURRENT_SCHEMA_VERSION = 5
 
 
 def get_connection():
@@ -33,27 +38,32 @@ def get_connection():
 
 
 def initialize_database():
-    """根据 schema.sql 初始化数据库表结构，并迁移旧数据库。"""
+    """初始化数据库表结构，并对旧数据库执行未完成迁移。"""
 
     # 建立连接；SQLite 会在数据库文件不存在时自动创建文件。
     conn = get_connection()
 
     try:
-        # 如果 schema.sql 不存在，给出明确错误，方便排查项目结构问题。
-        if not SCHEMA_PATH.exists():
-            raise FileNotFoundError(f"找不到数据库结构文件: {SCHEMA_PATH}")
+        # 如果 base.sql 不存在，给出明确错误，方便排查项目结构问题。
+        if not BASE_SCHEMA_PATH.exists():
+            raise FileNotFoundError(f"找不到数据库结构文件: {BASE_SCHEMA_PATH}")
 
-        # 在执行 schema.sql 之前先判断是否已有业务表。
+        # 在执行 base.sql 之前先判断是否已有业务表。
         # 如果没有业务表，说明这是全新数据库，可以直接标记为当前版本。
         had_business_tables = _has_business_tables(conn)
 
-        # 读取并执行 schema.sql 中的所有 SQL 语句。
-        schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
-        conn.executescript(schema_sql)
-
         if had_business_tables:
+            # 旧库不能直接依赖 base.sql 升级：
+            # CREATE TABLE IF NOT EXISTS 不会修改已有表字段，
+            # 而 CREATE INDEX 还可能引用旧表中不存在的新字段。
+            # 所以先跑 migrations，把旧表改到最新结构。
             _run_migrations(conn)
+            # migrations 负责把旧表结构推进到当前版本；
+            # base.sql 再补齐缺失的新表或索引。
+            _run_sql_file(conn, BASE_SCHEMA_PATH)
         else:
+            # base.sql 始终保持“当前最新版完整结构”。
+            _run_sql_file(conn, BASE_SCHEMA_PATH)
             _set_schema_version(conn, CURRENT_SCHEMA_VERSION)
 
         # commit 类似“保存修改”；对 CREATE/INSERT/UPDATE/DELETE 都很重要。
@@ -79,7 +89,9 @@ def _has_business_tables(conn):
               'price_data',
               'indicators',
               'asset_info',
-              'data_update_log'
+              'data_update_log',
+              'stock_universe',
+              'financial_indicators'
           )
         LIMIT 1
         """
@@ -122,6 +134,35 @@ def _set_schema_version(conn, version):
     )
 
 
+def _run_sql_file(conn, sql_path):
+    """读取并执行一个 SQL 文件。"""
+
+    if not sql_path.exists():
+        raise FileNotFoundError(f"找不到数据库迁移文件: {sql_path}")
+
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.executescript(sql)
+
+
+def _migration_path(version):
+    """根据版本号查找对应迁移文件。"""
+
+    # 文件名采用 001_xxx.sql、002_xxx.sql 这种格式。
+    # 这样一眼能看出执行顺序，也方便按版本号查找。
+    pattern = f"{version:03d}_*.sql"
+    matches = sorted(MIGRATIONS_DIR.glob(pattern))
+
+    if not matches:
+        raise FileNotFoundError(
+            f"找不到 v{version} 数据库迁移文件: {MIGRATIONS_DIR / pattern}"
+        )
+
+    if len(matches) > 1:
+        raise RuntimeError(f"v{version} 数据库迁移文件不唯一: {matches}")
+
+    return matches[0]
+
+
 def _column_exists(conn, table_name, column_name):
     """检查指定表中是否已经存在某个字段。"""
 
@@ -145,34 +186,16 @@ def _add_column_if_missing(conn, table_name, column_name, column_sql):
     )
 
 
-def _backfill_timestamp_columns(conn, table_name):
-    """为旧数据补齐 created_at / updated_at。"""
+def _drop_column_if_exists(conn, table_name, column_name):
+    """字段存在时才执行 ALTER TABLE DROP COLUMN。"""
+
+    if not _column_exists(conn, table_name, column_name):
+        return
 
     conn.execute(
         f"""
-        UPDATE {table_name}
-        SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
-            updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
-        """
-    )
-
-
-def _create_timestamp_insert_trigger(conn, table_name, trigger_name):
-    """为旧表创建插入后自动补时间戳的触发器。"""
-
-    conn.execute(
-        f"""
-        CREATE TRIGGER IF NOT EXISTS {trigger_name}
-        AFTER INSERT ON {table_name}
-        FOR EACH ROW
-        WHEN NEW.created_at IS NULL OR NEW.updated_at IS NULL
-        BEGIN
-            UPDATE {table_name}
-            SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
-                updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
-            WHERE symbol = NEW.symbol
-              AND date = NEW.date;
-        END;
+        ALTER TABLE {table_name}
+        DROP COLUMN {column_name}
         """
     )
 
@@ -180,31 +203,72 @@ def _create_timestamp_insert_trigger(conn, table_name, trigger_name):
 def _migrate_to_v1(conn):
     """迁移到 v1：为旧价格和指标表补时间戳字段。"""
 
+    # SQLite 对 ADD COLUMN IF NOT EXISTS 的支持不稳定，
+    # 因此字段存在性检查放在 Python 里做。
     for table_name in ("price_data", "indicators"):
         _add_column_if_missing(conn, table_name, "created_at", "TEXT")
         _add_column_if_missing(conn, table_name, "updated_at", "TEXT")
-        _backfill_timestamp_columns(conn, table_name)
+    _run_sql_file(conn, _migration_path(1))
 
-    _create_timestamp_insert_trigger(
+
+def _migrate_to_v2(conn):
+    """迁移到 v2：新增 stock_universe 全市场股票池表。"""
+
+    _run_sql_file(conn, _migration_path(2))
+
+
+def _migrate_to_v3(conn):
+    """迁移到 v3：新增 financial_indicators 财务指标表。"""
+
+    _run_sql_file(conn, _migration_path(3))
+
+
+def _migrate_to_v4(conn):
+    """迁移到 v4：保留历史版本号占位。"""
+
+    # v4 曾用于 fixed_asset_ratio 字段；该字段因为上游数据缺失较多已移除。
+    # 保留这个 no-op 版本，可以让已经记录到 v4 的旧数据库继续平滑升级到 v5。
+    _run_sql_file(conn, _migration_path(4))
+
+
+def _migrate_to_v5(conn):
+    """迁移到 v5：移除财务指标表中的固定资产比重字段。"""
+
+    _drop_column_if_exists(
         conn,
-        table_name="price_data",
-        trigger_name="trg_price_data_fill_timestamps",
+        table_name="financial_indicators",
+        column_name="fixed_asset_ratio",
     )
-    _create_timestamp_insert_trigger(
-        conn,
-        table_name="indicators",
-        trigger_name="trg_indicators_fill_timestamps",
-    )
+    _run_sql_file(conn, _migration_path(5))
 
 
 def _run_migrations(conn):
     """按版本顺序执行未完成的数据库迁移。"""
 
+    # 注意 current_version 在函数开头读取一次即可。
+    # 后续每完成一个版本就写入 schema_version；
+    # if 判断仍然基于原始版本，正好可以从旧版本一路跑到最新版本。
     current_version = _get_schema_version(conn)
 
     if current_version < 1:
         _migrate_to_v1(conn)
         _set_schema_version(conn, 1)
+
+    if current_version < 2:
+        _migrate_to_v2(conn)
+        _set_schema_version(conn, 2)
+
+    if current_version < 3:
+        _migrate_to_v3(conn)
+        _set_schema_version(conn, 3)
+
+    if current_version < 4:
+        _migrate_to_v4(conn)
+        _set_schema_version(conn, 4)
+
+    if current_version < 5:
+        _migrate_to_v5(conn)
+        _set_schema_version(conn, 5)
 
 
 def get_latest_date(symbol):

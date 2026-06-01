@@ -1,16 +1,18 @@
--- database/schema.sql
+-- database/schema/base.sql
 -- Quant-KL SQLite database schema
--- 作用：统一创建项目所需的数据表，避免 price_data 表依赖手动创建。
--- 使用方式：由 database/db_utils.py 中的 initialize_database() 读取并执行。
+-- 作用：为全新数据库一次性创建当前最新版表结构。
+-- 旧数据库的增量变更放在 database/migrations/ 目录。
+--
+-- 维护规则：
+-- 1. 这个文件代表“新建数据库时应该长什么样”。
+-- 2. 已经存在的旧数据库不会因为 CREATE TABLE IF NOT EXISTS 自动新增/删除字段。
+-- 3. 因此每次改表结构时，除了更新本文件，还要新增 migration 文件。
 
 PRAGMA foreign_keys = ON;
 
 -- =========================================================
 -- 1. 原始行情数据表
 -- =========================================================
--- 每一行代表一个标的在一个交易日的 OHLCV 数据。
--- PRIMARY KEY (symbol, date) 保证同一标的同一日期只能有一条记录，
--- 避免重复下载或重复写入造成指标和回测失真。
 CREATE TABLE IF NOT EXISTS price_data (
     symbol TEXT NOT NULL,
     date TEXT NOT NULL,
@@ -27,11 +29,6 @@ CREATE TABLE IF NOT EXISTS price_data (
     PRIMARY KEY (symbol, date)
 );
 
--- 按 symbol 和 date 查询是最常见操作，例如：
--- 1. 查询某只 ETF 的历史行情；
--- 2. 查询最新日期；
--- 3. 计算指标和回测。
--- 复合主键本身已经建立索引，但这里保留显式索引，便于阅读和扩展。
 CREATE INDEX IF NOT EXISTS idx_price_data_symbol_date
 ON price_data (symbol, date);
 
@@ -39,8 +36,6 @@ ON price_data (symbol, date);
 -- =========================================================
 -- 2. 技术指标数据表
 -- =========================================================
--- 字段名称保持与你当前 db_utils.py 里的 indicators 表一致，
--- 避免影响 analysis/indicators.py、summary.py、scoring2.py 等已有模块。
 CREATE TABLE IF NOT EXISTS indicators (
     symbol TEXT NOT NULL,
     date TEXT NOT NULL,
@@ -72,8 +67,6 @@ CREATE TABLE IF NOT EXISTS indicators (
 
     PRIMARY KEY (symbol, date),
 
-    -- 如果某个交易日没有 price_data，也允许先写 indicators 失败，
-    -- 这样可以帮助发现数据流程问题。
     FOREIGN KEY (symbol, date)
         REFERENCES price_data (symbol, date)
         ON DELETE CASCADE
@@ -82,10 +75,10 @@ CREATE TABLE IF NOT EXISTS indicators (
 CREATE INDEX IF NOT EXISTS idx_indicators_symbol_date
 ON indicators (symbol, date);
 
+
 -- =========================================================
 -- 3. 资产信息表
 -- =========================================================
-
 CREATE TABLE IF NOT EXISTS asset_info (
     symbol TEXT PRIMARY KEY,
 
@@ -108,11 +101,82 @@ CREATE TABLE IF NOT EXISTS asset_info (
 
 
 -- =========================================================
--- 4. 数据更新日志表
+-- 4. 全市场股票池表
 -- =========================================================
--- 每一行记录一次 symbol 的数据更新结果。
--- 用于追踪哪些标的更新成功、失败、返回空数据、没有新增数据等。
+CREATE TABLE IF NOT EXISTS stock_universe (
+    symbol TEXT PRIMARY KEY,
+    stock_code TEXT NOT NULL,
+    name TEXT NOT NULL,
 
+    exchange TEXT,
+    market TEXT DEFAULT 'CN',
+
+    is_active INTEGER DEFAULT 1,
+    is_st INTEGER DEFAULT 0,
+    is_delisting_risk INTEGER DEFAULT 0,
+
+    list_date TEXT,
+    delist_date TEXT,
+
+    data_source TEXT,
+    note TEXT,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 财报下载前会从 stock_universe 里筛选：
+-- 仍在交易、非 ST、无明显退市风险的股票。
+CREATE INDEX IF NOT EXISTS idx_stock_universe_active_flags
+ON stock_universe (
+    is_active,
+    is_st,
+    is_delisting_risk
+);
+
+
+-- =========================================================
+-- 5. 财务指标数据表
+-- =========================================================
+CREATE TABLE IF NOT EXISTS financial_indicators (
+    symbol TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+
+    announce_date TEXT,
+    period_type TEXT,
+    fiscal_year INTEGER,
+    fiscal_period TEXT,
+
+    roe REAL,
+    revenue REAL,
+    revenue_yoy REAL,
+    net_profit REAL,
+    net_profit_yoy REAL,
+    gross_margin REAL,
+    debt_ratio REAL,
+    operating_cash_flow REAL,
+    eps REAL,
+
+    data_source TEXT,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (symbol, report_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_indicators_symbol_report_date
+ON financial_indicators (symbol, report_date);
+
+-- announce_date 当前多数记录为空，但先保留索引位。
+-- 后续补公告日后，历史回测应按 announce_date 判断财报是否已经可见。
+CREATE INDEX IF NOT EXISTS idx_financial_indicators_announce_date
+ON financial_indicators (announce_date);
+
+
+-- =========================================================
+-- 6. 数据更新日志表
+-- =========================================================
 CREATE TABLE IF NOT EXISTS data_update_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -138,12 +202,8 @@ CREATE TABLE IF NOT EXISTS data_update_log (
 
 
 -- =========================================================
--- 5. 数据库结构版本表
+-- 7. 数据库结构版本表
 -- =========================================================
--- 每一行代表一个已经成功执行的 schema 版本。
--- initialize_database() 会读取这里的最大 version，
--- 再决定是否需要对旧数据库执行迁移。
-
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT DEFAULT CURRENT_TIMESTAMP
