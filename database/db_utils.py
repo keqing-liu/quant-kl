@@ -19,7 +19,7 @@ MIGRATIONS_DIR = DATABASE_DIR / "migrations"
 
 # 当前代码支持的数据库结构版本。
 # 后续每新增一个 migration 文件，都要同步递增这个版本号。
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 9
 
 
 def get_connection():
@@ -242,6 +242,81 @@ def _migrate_to_v5(conn):
     _run_sql_file(conn, _migration_path(5))
 
 
+def _migrate_to_v6(conn):
+    """迁移到 v6：扩展财务数据表，并新增巴菲特指标相关表。"""
+
+    financial_indicator_columns = {
+        "weighted_roe": "REAL",
+        "roa": "REAL",
+        "deducted_net_profit": "REAL",
+        "operating_margin": "REAL",
+        "net_margin": "REAL",
+        "cost_expense_margin": "REAL",
+        "main_profit_ratio": "REAL",
+        "non_main_ratio": "REAL",
+        "equity_ratio": "REAL",
+        "current_ratio": "REAL",
+        "quick_ratio": "REAL",
+        "cash_ratio": "REAL",
+        "interest_coverage": "REAL",
+        "receivable_turnover": "REAL",
+        "receivable_days": "REAL",
+        "inventory_turnover": "REAL",
+        "inventory_days": "REAL",
+        "total_asset_turnover": "REAL",
+        "fixed_asset_ratio": "REAL",
+        "ocf_to_revenue": "REAL",
+        "ocf_to_net_profit": "REAL",
+        "ocf_to_debt": "REAL",
+        "cash_flow_ratio": "REAL",
+        "operating_cash_flow_per_share": "REAL",
+        "book_value_per_share": "REAL",
+    }
+
+    for column_name, column_sql in financial_indicator_columns.items():
+        _add_column_if_missing(
+            conn,
+            table_name="financial_indicators",
+            column_name=column_name,
+            column_sql=column_sql,
+        )
+
+    _run_sql_file(conn, _migration_path(6))
+
+
+def _migrate_to_v7(conn):
+    """迁移到 v7：暂停分红事件表。"""
+
+    _run_sql_file(conn, _migration_path(7))
+
+
+def _migrate_to_v8(conn):
+    """迁移到 v8：移除分红相关结构字段。"""
+
+    _drop_column_if_exists(
+        conn,
+        table_name="financial_indicators",
+        column_name="dividend_payout_ratio",
+    )
+    _drop_column_if_exists(
+        conn,
+        table_name="buffett_metrics",
+        column_name="dividend_payout_ratio",
+    )
+    _drop_column_if_exists(
+        conn,
+        table_name="buffett_metrics",
+        column_name="dividend_yield",
+    )
+    _run_sql_file(conn, _migration_path(8))
+
+
+def _migrate_to_v9(conn):
+    """迁移到 v9：新增美国上市公司 SEC 映射表。"""
+
+    _run_sql_file(conn, _migration_path(9))
+
+
 def _run_migrations(conn):
     """按版本顺序执行未完成的数据库迁移。"""
 
@@ -269,6 +344,22 @@ def _run_migrations(conn):
     if current_version < 5:
         _migrate_to_v5(conn)
         _set_schema_version(conn, 5)
+
+    if current_version < 6:
+        _migrate_to_v6(conn)
+        _set_schema_version(conn, 6)
+
+    if current_version < 7:
+        _migrate_to_v7(conn)
+        _set_schema_version(conn, 7)
+
+    if current_version < 8:
+        _migrate_to_v8(conn)
+        _set_schema_version(conn, 8)
+
+    if current_version < 9:
+        _migrate_to_v9(conn)
+        _set_schema_version(conn, 9)
 
 
 def get_latest_date(symbol):

@@ -192,6 +192,98 @@ ASSETS = [
         "is_active": 1,
         "note": "A股白酒龙头公司",
     },
+
+    # =========================
+    # 美国 ETF
+    # =========================
+    {
+        "symbol": "us_spy",
+        "name": "SPDR S&P 500 ETF",
+        "asset_type": "US_ETF",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国 S&P 500 ETF",
+    },
+    {
+        "symbol": "us_voo",
+        "name": "Vanguard S&P 500 ETF",
+        "asset_type": "US_ETF",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国 S&P 500 ETF",
+    },
+    {
+        "symbol": "us_qqq",
+        "name": "Invesco QQQ Trust",
+        "asset_type": "US_ETF",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance",
+        "benchmark_symbol": "us_qqq",
+        "benchmark_name": "Nasdaq 100",
+        "is_active": 1,
+        "note": "美国 Nasdaq 100 ETF",
+    },
+
+    # =========================
+    # 美国股票
+    # =========================
+    {
+        "symbol": "us_aapl",
+        "name": "Apple",
+        "asset_type": "US_STOCK",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance/sec_companyfacts",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国上市公司",
+    },
+    {
+        "symbol": "us_msft",
+        "name": "Microsoft",
+        "asset_type": "US_STOCK",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance/sec_companyfacts",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国上市公司",
+    },
+    {
+        "symbol": "us_nvda",
+        "name": "NVIDIA",
+        "asset_type": "US_STOCK",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance/sec_companyfacts",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国上市公司",
+    },
+    {
+        "symbol": "us_brk_b",
+        "name": "Berkshire Hathaway",
+        "asset_type": "US_STOCK",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "yfinance/sec_companyfacts",
+        "benchmark_symbol": "us_spy",
+        "benchmark_name": "S&P 500",
+        "is_active": 1,
+        "note": "美国上市公司",
+    },
 ]
 
 

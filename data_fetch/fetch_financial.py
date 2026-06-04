@@ -24,16 +24,107 @@ FINANCIAL_COLUMNS = [
     "fiscal_year",
     "fiscal_period",
     "roe",
+    "weighted_roe",
+    "roa",
     "revenue",
     "revenue_yoy",
     "net_profit",
     "net_profit_yoy",
+    "deducted_net_profit",
     "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "cost_expense_margin",
+    "main_profit_ratio",
+    "non_main_ratio",
     "debt_ratio",
+    "equity_ratio",
+    "current_ratio",
+    "quick_ratio",
+    "cash_ratio",
+    "interest_coverage",
+    "receivable_turnover",
+    "receivable_days",
+    "inventory_turnover",
+    "inventory_days",
+    "total_asset_turnover",
+    "fixed_asset_ratio",
+    "ocf_to_revenue",
+    "ocf_to_net_profit",
+    "ocf_to_debt",
+    "cash_flow_ratio",
     "operating_cash_flow",
+    "operating_cash_flow_per_share",
+    "book_value_per_share",
     "eps",
     "data_source",
 ]
+
+# financial_indicators 表字段说明：
+# symbol: 项目内部股票代码，例如 sh600519 / sz000001。
+# report_date: 财报报告期日期，来自新浪财务指标“日期”。
+# announce_date: 公告日；新浪财务指标端口通常不提供，当前保留为 NULL。
+# period_type: 报告期类型；当前统一为 report。
+# fiscal_year / fiscal_period: 从 report_date 推导出的会计年度和季度。
+# roe: 净资产收益率(%)，优先取“净资产收益率(%)”。
+# weighted_roe: 加权净资产收益率(%)。
+# roa: 总资产净利润率/总资产利润率/资产报酬率(%)。
+# revenue: 营业收入；新浪财务指标端口通常缺该绝对金额，更多依赖三大报表。
+# revenue_yoy: 主营业务收入增长率(%)。
+# net_profit: 净利润；该指标端口缺净利润时会用扣非净利润候选补位。
+# net_profit_yoy: 净利润增长率(%)。
+# deducted_net_profit: 扣除非经常性损益后的净利润(元)。
+# gross_margin: 销售毛利率(%)；部分股票该字段可能为空。
+# operating_margin: 营业利润率(%)。
+# net_margin: 销售净利率(%)。
+# cost_expense_margin: 成本费用利润率(%)。
+# main_profit_ratio: 主营利润比重。
+# non_main_ratio: 非主营比重。
+# debt_ratio: 资产负债率(%)。
+# equity_ratio: 股东权益比率(%)。
+# current_ratio / quick_ratio: 流动比率 / 速动比率。
+# cash_ratio: 现金比率(%)。
+# interest_coverage: 利息支付倍数。
+# receivable_turnover / receivable_days: 应收账款周转率(次) / 周转天数(天)。
+# inventory_turnover / inventory_days: 存货周转率(次) / 周转天数(天)。
+# total_asset_turnover: 总资产周转率(次)。
+# fixed_asset_ratio: 固定资产比重(%)。
+# ocf_to_revenue: 经营现金净流量对销售收入比率(%)。
+# ocf_to_net_profit: 经营现金净流量与净利润的比率(%)。
+# ocf_to_debt: 经营现金净流量对负债比率(%)。
+# cash_flow_ratio: 现金流量比率(%)。
+# operating_cash_flow: 经营现金流相关绝对值；若端口没有绝对值，可能退化为每股经营现金流。
+# operating_cash_flow_per_share: 每股经营性现金流(元)。
+# book_value_per_share: 每股净资产(元)。
+# eps: 摊薄/加权每股收益(元)。
+# data_source: 数据来源标识。
+
+
+STATEMENT_COLUMNS = [
+    "symbol",
+    "report_date",
+    "announce_date",
+    "statement_type",
+    "item_name",
+    "item_value",
+    "currency",
+    "report_type",
+    "is_audited",
+    "data_source",
+]
+
+# financial_statement_items 表字段说明：
+# 这张表保存新浪三大报表原始项目的“窄表”结构，不把所有报表科目硬编码成列。
+# symbol: 项目内部股票代码。
+# report_date: 报告期日期，来自新浪三大报表“报告日”。
+# announce_date: 公告日期，来自新浪三大报表“公告日期”。
+# statement_type: 报表类型，取值为“利润表”“资产负债表”“现金流量表”。
+# item_name: 原始报表科目名，例如“营业总收入”“资产总计”“经营活动产生的现金流量净额”。
+# item_value: 报表科目数值，通常为元。
+# currency: 币种。
+# report_type: 新浪返回的报表类型，例如“合并期末”。
+# is_audited: 是否审计。
+# data_source: 数据来源标识。
 
 
 def normalize_stock_code(symbol):
@@ -103,6 +194,36 @@ def download_financial_indicators(symbol, start_year=None):
     )
 
 
+def download_financial_statements(symbol, start_year=None):
+    """下载新浪三大报表，并整理成窄表 item 结构。"""
+
+    import akshare as ak
+
+    stock = _normalize_sina_stock_symbol(symbol)
+    frames = []
+
+    for statement_type in ("利润表", "资产负债表", "现金流量表"):
+        raw_df = ak.stock_financial_report_sina(
+            stock=stock,
+            symbol=statement_type,
+        )
+        df = standardize_financial_statement(
+            raw_df=raw_df,
+            symbol=symbol,
+            statement_type=statement_type,
+            start_year=start_year,
+        )
+        if not df.empty:
+            frames.append(df)
+
+    pd = _get_pandas()
+
+    if not frames:
+        return pd.DataFrame(columns=STATEMENT_COLUMNS)
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def standardize_financial_indicators(raw_df, symbol, start_year=None):
     """把 AkShare 财务指标字段整理成项目统一字段。"""
 
@@ -156,6 +277,20 @@ def standardize_financial_indicators(raw_df, symbol, start_year=None):
             "ROEJQ",
         ],
     )
+    result["weighted_roe"] = _get_numeric_column(
+        df,
+        [
+            "加权净资产收益率(%)",
+        ],
+    )
+    result["roa"] = _get_numeric_column(
+        df,
+        [
+            "总资产净利润率(%)",
+            "总资产利润率(%)",
+            "资产报酬率(%)",
+        ],
+    )
     result["revenue"] = _get_numeric_column(
         df,
         [
@@ -187,11 +322,47 @@ def standardize_financial_indicators(raw_df, symbol, start_year=None):
             "PARENTNETPROFITTZ",
         ],
     )
+    result["deducted_net_profit"] = _get_numeric_column(
+        df,
+        [
+            "扣除非经常性损益后的净利润(元)",
+        ],
+    )
     result["gross_margin"] = _get_numeric_column(
         df,
         [
             "销售毛利率(%)",
             "XSMLL",
+        ],
+    )
+    result["operating_margin"] = _get_numeric_column(
+        df,
+        [
+            "营业利润率(%)",
+        ],
+    )
+    result["net_margin"] = _get_numeric_column(
+        df,
+        [
+            "销售净利率(%)",
+        ],
+    )
+    result["cost_expense_margin"] = _get_numeric_column(
+        df,
+        [
+            "成本费用利润率(%)",
+        ],
+    )
+    result["main_profit_ratio"] = _get_numeric_column(
+        df,
+        [
+            "主营利润比重",
+        ],
+    )
+    result["non_main_ratio"] = _get_numeric_column(
+        df,
+        [
+            "非主营比重",
         ],
     )
     result["debt_ratio"] = _get_numeric_column(
@@ -201,12 +372,64 @@ def standardize_financial_indicators(raw_df, symbol, start_year=None):
             "ZCFZL",
         ],
     )
+    result["equity_ratio"] = _get_numeric_column(
+        df,
+        [
+            "股东权益比率(%)",
+        ],
+    )
+    result["current_ratio"] = _get_numeric_column(df, ["流动比率"])
+    result["quick_ratio"] = _get_numeric_column(df, ["速动比率"])
+    result["cash_ratio"] = _get_numeric_column(df, ["现金比率(%)"])
+    result["interest_coverage"] = _get_numeric_column(df, ["利息支付倍数"])
+    result["receivable_turnover"] = _get_numeric_column(
+        df,
+        ["应收账款周转率(次)"],
+    )
+    result["receivable_days"] = _get_numeric_column(
+        df,
+        ["应收账款周转天数(天)"],
+    )
+    result["inventory_turnover"] = _get_numeric_column(df, ["存货周转率(次)"])
+    result["inventory_days"] = _get_numeric_column(df, ["存货周转天数(天)"])
+    result["total_asset_turnover"] = _get_numeric_column(
+        df,
+        ["总资产周转率(次)"],
+    )
+    result["fixed_asset_ratio"] = _get_numeric_column(df, ["固定资产比重(%)"])
+    result["ocf_to_revenue"] = _get_numeric_column(
+        df,
+        ["经营现金净流量对销售收入比率(%)"],
+    )
+    result["ocf_to_net_profit"] = _get_numeric_column(
+        df,
+        ["经营现金净流量与净利润的比率(%)"],
+    )
+    result["ocf_to_debt"] = _get_numeric_column(
+        df,
+        ["经营现金净流量对负债比率(%)"],
+    )
+    result["cash_flow_ratio"] = _get_numeric_column(df, ["现金流量比率(%)"])
     result["operating_cash_flow"] = _get_numeric_column(
         df,
         [
-            "经营现金净流量与净利润的比率(%)",
-            "每股经营性现金流(元)",
             "经营活动产生的现金流量净额",
+            "经营现金净流量",
+            "每股经营性现金流(元)",
+        ],
+    )
+    result["operating_cash_flow_per_share"] = _get_numeric_column(
+        df,
+        [
+            "每股经营性现金流(元)",
+        ],
+    )
+    result["book_value_per_share"] = _get_numeric_column(
+        df,
+        [
+            "每股净资产_调整后(元)",
+            "每股净资产_调整前(元)",
+            "调整后的每股净资产(元)",
         ],
     )
     result["eps"] = _get_numeric_column(
@@ -234,6 +457,81 @@ def standardize_financial_indicators(raw_df, symbol, start_year=None):
     return result[FINANCIAL_COLUMNS]
 
 
+def standardize_financial_statement(raw_df, symbol, statement_type, start_year=None):
+    """把新浪三大报表转成 symbol/report_date/item_name/item_value 窄表。"""
+
+    pd = _get_pandas()
+
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame(columns=STATEMENT_COLUMNS)
+
+    df = raw_df.copy()
+    report_date_column = _find_first_column(df, ["报告日", "REPORT_DATE"])
+
+    if report_date_column is None:
+        raise ValueError(f"{statement_type} 缺少报告日期字段")
+
+    meta_columns = {
+        report_date_column,
+        "数据源",
+        "是否审计",
+        "公告日期",
+        "币种",
+        "类型",
+        "更新日期",
+    }
+    value_columns = [column for column in df.columns if column not in meta_columns]
+    records = []
+    internal_symbol = _normalize_internal_symbol(symbol)
+
+    for _, row in df.iterrows():
+        report_date = _format_date(row.get(report_date_column), compact=True)
+
+        if report_date is None:
+            continue
+
+        fiscal_year = int(report_date[:4])
+
+        if start_year is not None and fiscal_year < int(start_year):
+            continue
+
+        announce_date = _format_date(row.get("公告日期"), compact=True)
+
+        for item_name in value_columns:
+            item_value = _to_float(row.get(item_name))
+
+            if item_value is None:
+                continue
+
+            records.append(
+                {
+                    "symbol": internal_symbol,
+                    "report_date": report_date,
+                    "announce_date": announce_date,
+                    "statement_type": statement_type,
+                    "item_name": str(item_name),
+                    "item_value": item_value,
+                    "currency": _clean_text_value(row.get("币种")),
+                    "report_type": _clean_text_value(row.get("类型")),
+                    "is_audited": _clean_text_value(row.get("是否审计")),
+                    "data_source": "akshare_sina_financial_report",
+                }
+            )
+
+    if not records:
+        return pd.DataFrame(columns=STATEMENT_COLUMNS)
+
+    result = pd.DataFrame(records)
+    result = result.drop_duplicates(
+        subset=["symbol", "report_date", "statement_type", "item_name"],
+    )
+    result = result.sort_values(
+        ["symbol", "report_date", "statement_type", "item_name"],
+    ).reset_index(drop=True)
+
+    return result[STATEMENT_COLUMNS]
+
+
 def _normalize_internal_symbol(symbol):
     """把 6 位股票代码补成项目内部使用的 sh/sz 前缀格式。"""
 
@@ -243,6 +541,14 @@ def _normalize_internal_symbol(symbol):
         return f"sh{stock_code}"
 
     return f"sz{stock_code}"
+
+
+def _normalize_sina_stock_symbol(symbol):
+    """把内部 symbol 转成新浪三大报表使用的 sh/sz + 6 位代码。"""
+
+    internal_symbol = _normalize_internal_symbol(symbol)
+
+    return internal_symbol
 
 
 def _get_numeric_column(df, candidate_columns):
@@ -264,6 +570,17 @@ def _find_first_column(df, candidate_columns):
             return column
 
     return None
+
+
+def _get_series(df, column_name):
+    """安全读取一列；缺列时返回与 df 等长的空列。"""
+
+    pd = _get_pandas()
+
+    if column_name in df.columns:
+        return df[column_name]
+
+    return pd.Series([None] * len(df), index=df.index)
 
 
 def _to_numeric(series):
@@ -290,6 +607,60 @@ def _to_numeric(series):
     )
 
     return pd.to_numeric(cleaned, errors="coerce")
+
+
+def _to_float(value):
+    """把单个值清洗成 float。"""
+
+    if value is None:
+        return None
+
+    text = str(value).replace(",", "").replace("%", "").strip()
+
+    if not text or text.lower() in ("nan", "none", "nat") or text in ("--", "-"):
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _format_date(value, compact=False):
+    """把 AkShare 日期值整理成 YYYY-MM-DD。"""
+
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    if not text or text.lower() in ("nan", "none", "nat"):
+        return None
+
+    if compact and re.fullmatch(r"\d{8}", text):
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+
+    pd = _get_pandas()
+    parsed = pd.to_datetime(text, errors="coerce")
+
+    if pd.isna(parsed):
+        return None
+
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _clean_text_value(value):
+    """清洗可选文本值。"""
+
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    if not text or text.lower() in ("nan", "none", "nat"):
+        return None
+
+    return text
 
 
 def _get_pandas():

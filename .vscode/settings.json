@@ -1,0 +1,19 @@
+{
+  "python.defaultInterpreterPath": "/Users/kl/opt/anaconda3/bin/python",
+  "python.terminal.activateEnvironment": false,
+  "python.terminal.activateEnvInCurrentTerminal": false,
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "terminal.integrated.profiles.osx": {
+    "zsh": {
+      "path": "/bin/zsh",
+      "args": [
+        "-l"
+      ]
+    }
+  },
+  "terminal.integrated.env.osx": {
+    "PATH": "/Users/kl/opt/anaconda3/bin:${env:PATH}",
+    "PYTHONHOME": null,
+    "PYTHONPATH": null
+  }
+}

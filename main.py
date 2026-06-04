@@ -17,8 +17,6 @@ from analysis.indicators import (
     run_indicator_analysis
 )
 
-from analysis.summary import run_summary
-
 # 第一步：确保数据库和需要的表已经准备好。
 initialize_database()
 
@@ -28,6 +26,10 @@ manager = DataManager()
 # WATCHLIST 是一个字典，"ETF" 这个键对应 ETF 代码列表。
 etf_list = WATCHLIST["ETF"]
 stock_list = WATCHLIST["STOCK"]
+us_etf_list = WATCHLIST.get("US_ETF", [])
+us_stock_list = WATCHLIST.get("US_STOCK", [])
+us_index_list = WATCHLIST.get("US_INDEX", [])
+us_market_indicator_list = WATCHLIST.get("US_MARKET_INDICATOR", [])
 
 # 遍历 ETF 列表，逐个更新。
 for symbol in etf_list:
@@ -48,10 +50,38 @@ for symbol in stock_list:
     except Exception as e:
         print(f"股票 {symbol} 更新失败: {e}")
 
+for ticker in us_etf_list:
+
+    try:
+        manager.update_us_etf(ticker)
+
+    except Exception as e:
+        print(f"美国 ETF {ticker} 更新失败: {e}")
+
+for ticker in us_stock_list:
+
+    try:
+        manager.update_us_stock(ticker)
+
+    except Exception as e:
+        print(f"美国股票 {ticker} 更新失败: {e}")
+
+for symbol in us_index_list:
+
+    try:
+        manager.update_us_index(symbol)
+
+    except Exception as e:
+        print(f"美国指数 {symbol} 更新失败: {e}")
+
+for symbol in us_market_indicator_list:
+
+    try:
+        manager.update_us_market_indicator(symbol)
+
+    except Exception as e:
+        print(f"美国市场指标 {symbol} 更新失败: {e}")
+
 # 计算技术指标
 
 run_indicator_analysis()
-
-# 打印几天的技术指标
-
-run_summary()

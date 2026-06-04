@@ -7,7 +7,15 @@ SQLite 负责持久化保存结果。
 import pandas as pd
 import numpy as np
 
+from config.watchlist import WATCHLIST
 from database.db_utils import get_connection, initialize_database
+from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+
+
+SKIP_INDICATOR_SYMBOLS = {
+    build_cboe_index_internal_symbol(symbol)
+    for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
+}
 
 
 # =========================
@@ -293,6 +301,10 @@ def run_indicator_analysis():
     symbols = get_all_symbols()
 
     for symbol in symbols:
+
+        if symbol in SKIP_INDICATOR_SYMBOLS:
+            print(f"{symbol} 是市场风险指标，跳过技术指标计算")
+            continue
 
         try:
 

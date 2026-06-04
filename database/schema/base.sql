@@ -136,7 +136,31 @@ ON stock_universe (
 
 
 -- =========================================================
--- 5. 财务指标数据表
+-- 5. 美国上市公司 SEC 映射表
+-- =========================================================
+CREATE TABLE IF NOT EXISTS us_company_map (
+    symbol TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    cik TEXT NOT NULL,
+    name TEXT,
+    exchange TEXT,
+    is_active INTEGER DEFAULT 1,
+    data_source TEXT,
+    note TEXT,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_us_company_map_ticker
+ON us_company_map (ticker);
+
+CREATE INDEX IF NOT EXISTS idx_us_company_map_cik
+ON us_company_map (cik);
+
+
+-- =========================================================
+-- 6. 财务指标数据表
 -- =========================================================
 CREATE TABLE IF NOT EXISTS financial_indicators (
     symbol TEXT NOT NULL,
@@ -148,13 +172,38 @@ CREATE TABLE IF NOT EXISTS financial_indicators (
     fiscal_period TEXT,
 
     roe REAL,
+    weighted_roe REAL,
+    roa REAL,
     revenue REAL,
     revenue_yoy REAL,
     net_profit REAL,
     net_profit_yoy REAL,
+    deducted_net_profit REAL,
     gross_margin REAL,
+    operating_margin REAL,
+    net_margin REAL,
+    cost_expense_margin REAL,
+    main_profit_ratio REAL,
+    non_main_ratio REAL,
     debt_ratio REAL,
+    equity_ratio REAL,
+    current_ratio REAL,
+    quick_ratio REAL,
+    cash_ratio REAL,
+    interest_coverage REAL,
+    receivable_turnover REAL,
+    receivable_days REAL,
+    inventory_turnover REAL,
+    inventory_days REAL,
+    total_asset_turnover REAL,
+    fixed_asset_ratio REAL,
+    ocf_to_revenue REAL,
+    ocf_to_net_profit REAL,
+    ocf_to_debt REAL,
+    cash_flow_ratio REAL,
     operating_cash_flow REAL,
+    operating_cash_flow_per_share REAL,
+    book_value_per_share REAL,
     eps REAL,
 
     data_source TEXT,
@@ -175,7 +224,85 @@ ON financial_indicators (announce_date);
 
 
 -- =========================================================
--- 6. 数据更新日志表
+-- 7. 财务报表明细窄表
+-- =========================================================
+CREATE TABLE IF NOT EXISTS financial_statement_items (
+    symbol TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    statement_type TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+
+    announce_date TEXT,
+    item_value REAL,
+    currency TEXT,
+    report_type TEXT,
+    is_audited TEXT,
+    data_source TEXT,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (symbol, report_date, statement_type, item_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_statement_items_symbol_report_date
+ON financial_statement_items (symbol, report_date);
+
+CREATE INDEX IF NOT EXISTS idx_financial_statement_items_announce_date
+ON financial_statement_items (announce_date);
+
+
+-- =========================================================
+-- 8. 巴菲特框架衍生指标
+-- =========================================================
+CREATE TABLE IF NOT EXISTS buffett_metrics (
+    symbol TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+
+    announce_date TEXT,
+    fiscal_year INTEGER,
+    fiscal_period TEXT,
+
+    revenue REAL,
+    net_profit REAL,
+    operating_cash_flow REAL,
+    capital_expenditure REAL,
+    depreciation_amortization REAL,
+    free_cash_flow REAL,
+    free_cash_flow_margin REAL,
+    market_cap REAL,
+    free_cash_flow_yield REAL,
+    cfo_to_net_profit REAL,
+    cfo_to_revenue REAL,
+    capex_to_cfo REAL,
+    capex_to_depreciation REAL,
+    owner_earnings_approx REAL,
+    nopat REAL,
+    invested_capital REAL,
+    roic REAL,
+    net_debt REAL,
+    net_debt_ratio REAL,
+    interest_coverage REAL,
+    goodwill_to_equity REAL,
+    receivable_to_revenue REAL,
+    inventory_to_revenue REAL,
+    working_capital REAL,
+    working_capital_change REAL,
+    data_source TEXT,
+
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (symbol, report_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_buffett_metrics_symbol_report_date
+ON buffett_metrics (symbol, report_date);
+
+
+-- =========================================================
+-- =========================================================
+-- 9. 数据更新日志表
 -- =========================================================
 CREATE TABLE IF NOT EXISTS data_update_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,7 +329,7 @@ CREATE TABLE IF NOT EXISTS data_update_log (
 
 
 -- =========================================================
--- 7. 数据库结构版本表
+-- 10. 数据库结构版本表
 -- =========================================================
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,

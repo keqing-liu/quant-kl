@@ -22,5 +22,36 @@ WATCHLIST = {
 
     "STOCK": [
         "sh600519",  # 贵州茅台
-    ]
+        "sz002594",  # 比亚迪
+        "sz000333",  # 美的集团
+        "sh603195",  # 公牛集团
+    ],
+
+    "US_ETF": [
+        "SPY",  # SPDR S&P 500 ETF
+        "VOO",  # Vanguard S&P 500 ETF
+        "QQQ",  # Invesco QQQ Trust
+        "SMH",  # VanEck Semiconductor ETF；Stooq 可下载的半导体风险代理
+    ],
+
+    "US_INDEX": [
+        # Stooq 当前对 ^sox 返回空数据；如未来恢复覆盖，可在这里加入 "^sox"。
+    ],
+
+    "US_MARKET_INDICATOR": [
+        "^vix",  # Cboe Volatility Index；使用 Cboe 官方日度 CSV
+        "^vxn",  # Nasdaq-100 Volatility Index；使用 Cboe 官方日度 CSV
+    ],
+
+    "US_STOCK": [
+        "AAPL",  # Apple
+        "MSFT",  # Microsoft
+        "NVDA",  # NVIDIA
+        "TSM",  # Taiwan Semiconductor ADR
+        "AVGO",  # Broadcom
+        "ASML",  # ASML ADR
+        "AMD",  # Advanced Micro Devices
+        "INTC",  # Intel
+        "BRK-B",  # Berkshire Hathaway
+    ],
 }
