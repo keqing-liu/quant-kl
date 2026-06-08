@@ -16,6 +16,18 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+Daily ETF research shortcut commands:
+
+```bash
+python -m quant e update
+python -m quant e summary --days 5
+python -m quant e cn --days 5
+python -m quant e us --days 5
+python -m quant e risk --days 5
+python -m quant e score
+python -m quant e trend
+```
+
 Run the regular market-data workflow:
 
 ```bash

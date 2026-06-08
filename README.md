@@ -4,6 +4,34 @@
 
 > 本项目用于个人学习和研究，不构成任何投资建议。
 
+## ETF 日常短命令
+
+如果只是日常观察 ETF，可以优先使用 `python -m quant e ...` 这一组短命令，不必记住分散在各个模块里的脚本名。
+
+| 任务 | 命令 |
+| --- | --- |
+| 更新行情并计算技术指标 | `python -m quant e update` |
+| 查看中美 ETF 摘要 | `python -m quant e summary --days 5` |
+| 只看中国 ETF 摘要 | `python -m quant e cn --days 5` |
+| 只看美国 ETF 摘要 | `python -m quant e us --days 5` |
+| 查看美国风险观察组合 | `python -m quant e risk --days 5` |
+| 短期技术指标打分 | `python -m quant e score` |
+| 趋势 / 波动率打分示例 | `python -m quant e trend` |
+
+也可以给当前 shell 加一个别名，让命令更短：
+
+```bash
+alias q='python -m quant'
+```
+
+之后可以这样运行：
+
+```bash
+q e update
+q e summary
+q e risk
+```
+
 ## 功能概览
 
 - 使用 `akshare` 下载 ETF 和 A 股历史行情
