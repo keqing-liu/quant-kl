@@ -11,15 +11,15 @@
 - 支持按 `config/watchlist.py` 批量更新关注标的
 - 支持同步沪深 A 股股票池，并按股票池批量下载 A 股财务指标和三大报表
 - 支持 watchlist 中的美国股票和 ETF：当前只下载行情，用 Stooq CSV
-- 支持用 Cboe 官方 CSV 下载 VIX / VXN 日度市场风险指标
+- 支持用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标
 - 支持基于新浪财报数据计算自由现金流、ROIC、净负债率等巴菲特式基本面指标
 - 支持基于年报 ROE、负债率、净利润增长率等指标做基本面筛选
 - 通过 `database/schema/base.sql` 初始化新数据库，并使用 `database/migrations/` 管理旧数据库结构迁移
 - 记录每次行情更新结果，方便追踪成功、失败、空数据和无新增数据等状态
 - 提供简单数据质量检查，覆盖重复交易日、OHLC 异常、缺失价格和成交量等问题
 - 计算均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等指标
-- 支持按分组输出最近交易日技术指标摘要、VIX / VXN 价格序列和简单打分结果
-- 绘制 K 线图、均线、布林带、KDJ、CCI 等图表
+- 支持按分组输出最近交易日技术指标摘要、Cboe 市场风险指标价格序列和简单打分结果
+- 绘制 K 线图、均线、布林带、KDJ、CCI、VIX / VXN / VVIX / SKEW 风险指标等图表
 - 回测沪深 300 ETF 与债券 ETF 的简单动态轮动策略
 
 ## 项目结构
@@ -83,7 +83,8 @@ quant-kl/
 └── visualization/
     ├── __init__.py
     ├── plot_etf.py
-    └── plot_indicators.py
+    ├── plot_indicators.py
+    └── plot_vix_vxn.py
 ```
 
 ## 文件说明
@@ -108,7 +109,7 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `fetch_cboe_market.py` | 使用 Cboe 官方 CSV 下载 VIX / VXN 日度市场风险指标，并整理成 `price_data` 兼容字段。 |
+| `fetch_cboe_market.py` | 使用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标，并整理成 `price_data` 兼容字段。 |
 | `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
 | `fetch_financial.py` | 使用 AkShare 下载并整理单只 A 股财务指标和三大报表。三大报表使用新浪端口，不使用东方财富端口。 |
 | `fetch_us_market.py` | 使用 Stooq CSV 下载美国股票和 ETF 历史行情，并整理成 `price_data` 兼容字段。 |
@@ -179,6 +180,7 @@ quant-kl/
 | --- | --- |
 | `plot_etf.py` | 从 SQLite 读取行情数据，使用 `mplfinance` 绘制 K 线、成交量和均线图。 |
 | `plot_indicators.py` | 从 SQLite 读取价格和指标数据，使用 `matplotlib` 绘制价格、均线、布林带、KDJ 和 CCI。 |
+| `plot_vix_vxn.py` | 从 SQLite 读取 Cboe 市场风险指标，绘制最近两个月 VIX / VXN、SKEW、VVIX 和 VXN-VIX 差值 subplot。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
 ### `data/`
@@ -341,14 +343,16 @@ source ~/.zshrc
 
 注意：Stooq 的 `Close` 会直接写入 `price_data.close`。这和旧版 `yfinance auto_adjust=True` 的复权价格口径可能不完全一致；如果未来要做严格跨源回测，需要单独校验复权口径。
 
-VIX / VXN 不走 Stooq，而是使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`，入库时会转换为内部 symbol：
+VIX / VXN / VVIX / SKEW 不走 Stooq，而是使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`、`^vvix`、`^skew`，入库时会转换为内部 symbol：
 
 | watchlist 代码 | 入库 symbol | 数据源 |
 | --- | --- | --- |
 | `^vix` | `cboe_vix` | Cboe `VIX_History.csv` |
 | `^vxn` | `cboe_vxn` | Cboe `VXN_History.csv` |
+| `^vvix` | `cboe_vvix` | Cboe `VVIX_History.csv` |
+| `^skew` | `cboe_skew` | Cboe `SKEW_History.csv` |
 
-Cboe CSV 没有成交量字段，因此 `price_data.volume` 会填 `0`。VIX / VXN 本身就是市场风险指标，不会写入 `indicators` 表，也不会计算 MA、KDJ、CCI 等技术指标。
+Cboe CSV 没有成交量字段，因此 `price_data.volume` 会填 `0`。这些 Cboe 序列本身就是市场风险指标，不会写入 `indicators` 表，也不会计算 MA、KDJ、CCI 等技术指标。
 
 `python main.py` 会自动读取 `WATCHLIST["US_ETF"]`、`WATCHLIST["US_STOCK"]`、`WATCHLIST["US_INDEX"]` 和 `WATCHLIST["US_MARKET_INDICATOR"]` 并更新行情 / 指标序列：
 
@@ -433,8 +437,8 @@ python -m analysis.summary --group cn-etf --days 5
 | `cn-stock` | 中国股票，来自 `WATCHLIST["STOCK"]` | `python -m analysis.summary --group cn-stock` |
 | `us-etf` | 美国 ETF，来自 `WATCHLIST["US_ETF"]` | `python -m analysis.summary --group us-etf` |
 | `us-stock` | 美国股票，来自 `WATCHLIST["US_STOCK"]` | `python -m analysis.summary --group us-stock` |
-| `us-market-indicator` | Cboe VIX / VXN，只输出价格序列 | `python -m analysis.summary --group us-market-indicator` |
-| `us-risk` | 美国风险监控组合，默认包含 QQQ、SMH、VIX、VXN | `python -m analysis.summary --group us-risk` |
+| `us-market-indicator` | Cboe VIX / VXN / VVIX / SKEW，只输出价格序列 | `python -m analysis.summary --group us-market-indicator` |
+| `us-risk` | 美国风险监控组合，默认包含 QQQ、SMH、VIX、VXN、VVIX、SKEW | `python -m analysis.summary --group us-risk` |
 
 手动指定标的：
 
@@ -486,6 +490,31 @@ python -m visualization.plot_etf
 python -m visualization.plot_indicators
 ```
 
+绘制 Cboe 市场风险指标图：
+
+```bash
+python -m visualization.plot_vix_vxn
+```
+
+该图默认读取最近 2 个月数据，并生成 4 个 subplot：
+
+- VIX 和 VXN 同图
+- SKEW 单独一图
+- VVIX 单独一图
+- VXN - VIX 差值单独一图
+
+保存 Cboe 市场风险指标图到图片文件：
+
+```bash
+python -m visualization.plot_vix_vxn --output data/cboe_risk_indicators_recent_2m.png
+```
+
+如果想调整回看月份数，可以使用 `--months`：
+
+```bash
+python -m visualization.plot_vix_vxn --months 3 --output data/cboe_risk_indicators_recent_3m.png
+```
+
 运行单一起始日期股债轮动回测：
 
 ```bash
@@ -524,6 +553,8 @@ WATCHLIST = {
     "US_MARKET_INDICATOR": [
         "^vix",
         "^vxn",
+        "^vvix",
+        "^skew",
     ],
 }
 ```

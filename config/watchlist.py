@@ -41,6 +41,8 @@ WATCHLIST = {
     "US_MARKET_INDICATOR": [
         "^vix",  # Cboe Volatility Index；使用 Cboe 官方日度 CSV
         "^vxn",  # Nasdaq-100 Volatility Index；使用 Cboe 官方日度 CSV
+        "^vvix",  # Cboe VVIX Index；使用 Cboe 官方日度 CSV
+        "^skew",  # Cboe SKEW Index；使用 Cboe 官方日度 CSV
     ],
 
     "US_STOCK": [

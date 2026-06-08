@@ -1,10 +1,16 @@
 """Cboe 市场风险指标日度数据下载函数。"""
 
 import re
+import ssl
 from io import StringIO
 from urllib.request import Request, urlopen
 
 import pandas as pd
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
 
 
 PRICE_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
@@ -12,6 +18,8 @@ CBOE_DAILY_PRICES_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices
 CBOE_INDEX_FILES = {
     "vix": "VIX_History.csv",
     "vxn": "VXN_History.csv",
+    "vvix": "VVIX_History.csv",
+    "skew": "SKEW_History.csv",
 }
 
 
@@ -55,7 +63,11 @@ def download_cboe_index_data(symbol):
 
     try:
         request = Request(url, headers={"User-Agent": "quant-kl/1.0"})
-        with urlopen(request, timeout=30) as response:
+        context = None
+        if certifi is not None:
+            context = ssl.create_default_context(cafile=certifi.where())
+
+        with urlopen(request, timeout=30, context=context) as response:
             csv_text = response.read().decode("utf-8", errors="replace")
     except Exception as exc:
         raise RuntimeError(f"Cboe 指标下载失败: {exc}") from exc
@@ -67,6 +79,13 @@ def download_cboe_index_data(symbol):
 
     if history is None or history.empty or "DATE" not in history.columns:
         return _empty_price_frame()
+
+    value_column = index_symbol.upper()
+    if value_column in history.columns and "CLOSE" not in history.columns:
+        history["OPEN"] = history[value_column]
+        history["HIGH"] = history[value_column]
+        history["LOW"] = history[value_column]
+        history["CLOSE"] = history[value_column]
 
     df = history.rename(
         columns={
