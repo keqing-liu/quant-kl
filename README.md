@@ -512,6 +512,27 @@ python -m analysis.bond_stock_yearly_return
 python -m visualization.plot_etf
 ```
 
+默认绘制 `sh510310` 的完整历史 K 线。如果只想看最近 18 个月：
+
+```bash
+python -m visualization.plot_etf --symbol sh510310 --months 18
+```
+
+绘制美国 ETF 或风险监控 ETF：
+
+```bash
+python -m visualization.plot_etf --group us-etf --months 18
+python -m visualization.plot_etf --group us-risk --months 18
+```
+
+手动指定多个标的并保存图片：
+
+```bash
+python -m visualization.plot_etf --symbols sh510310 us_qqq us_smh --months 18 --output data/etf_recent_18m.png
+```
+
+多标的保存时，脚本会自动把 symbol 加到文件名里，避免图片互相覆盖，例如 `etf_recent_18m_us_qqq.png`。
+
 绘制技术指标图：
 
 ```bash
