@@ -17,6 +17,7 @@
 | 查看美国风险观察组合 | `python -m quant e risk --days 5` |
 | 短期技术指标打分 | `python -m quant e score` |
 | 趋势 / 波动率打分示例 | `python -m quant e trend` |
+| 聚合周线并计算周线指标 | `python -m quant e weekly` |
 
 也可以给当前 shell 加一个别名，让命令更短：
 
@@ -30,6 +31,7 @@ alias q='python -m quant'
 q e update
 q e summary
 q e risk
+q e weekly
 ```
 
 ## 功能概览
@@ -46,6 +48,7 @@ q e risk
 - 记录每次行情更新结果，方便追踪成功、失败、空数据和无新增数据等状态
 - 提供简单数据质量检查，覆盖重复交易日、OHLC 异常、缺失价格和成交量等问题
 - 计算均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等指标
+- 支持由日线行情聚合周线行情，并计算周级别均线、布林带、KDJ、CCI 等指标
 - 支持按分组输出最近交易日技术指标摘要、Cboe 市场风险指标价格序列和简单打分结果
 - 绘制 K 线图、均线、布林带、KDJ、CCI、VIX / VXN / VVIX / SKEW 风险指标等图表
 - 回测沪深 300 ETF 与债券 ETF 的简单动态轮动策略
@@ -65,8 +68,8 @@ quant-kl/
 │   ├── stock_financial_snapshot.py
 │   ├── summary.py
 │   ├── fundamental_screen.py
-│   ├── scoring2.py
-│   ├── scoring_benchmark.py
+│   ├── short_term_oversold_score.py
+│   ├── etf_trend_volatility_score.py
 │   └── bond_stock_yearly_return.py
 ├── backtest/
 │   ├── __init__.py
@@ -103,7 +106,8 @@ quant-kl/
 │   │   ├── 006_expand_financial_data_for_buffett_metrics.sql
 │   │   ├── 007_drop_financial_dividend_events.sql
 │   │   ├── 008_drop_dividend_metric_fields.sql
-│   │   └── 009_create_us_company_map.sql
+│   │   ├── 009_create_us_company_map.sql
+│   │   └── 010_create_weekly_price_and_indicators.sql
 │   ├── db_utils.py
 │   ├── init_asset_info.py
 │   ├── data_quality_check.py
@@ -158,7 +162,7 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `schema/base.sql` | SQLite 新库建表脚本。一次性创建当前最新版 `price_data`、`indicators`、`asset_info`、`stock_universe`、财务数据表、`data_update_log`、`schema_version` 等表。 |
+| `schema/base.sql` | SQLite 新库建表脚本。一次性创建当前最新版日线/周线行情和指标表、资产信息、财务数据、更新日志、`schema_version` 等表。 |
 | `migrations/*.sql` | 旧数据库结构迁移脚本。每个文件对应一个 schema version，后续改表时按版本追加。 |
 | `db_utils.py` | SQLite 工具函数。包含数据库连接、执行 `schema/base.sql` 初始化、按版本执行迁移、查询单个标的最新行情日期、写入更新日志等功能。 |
 | `init_asset_info.py` | 初始化或刷新 `asset_info` 表中的资产基础信息。 |
@@ -171,6 +175,8 @@ quant-kl/
 | --- | --- |
 | `price_data` | 原始行情数据：`symbol`、`date`、`open`、`high`、`low`、`close`、`volume`。 |
 | `indicators` | 技术指标数据：均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等。 |
+| `weekly_price_data` | 周线行情数据：由 `price_data` 聚合生成，字段与日线行情一致。 |
+| `weekly_indicators` | 周线技术指标数据：基于 `weekly_price_data` 计算，字段与日线指标一致。 |
 | `asset_info` | 资产基础信息：名称、资产类型、资产类别、市场、数据源、基准和备注等。 |
 | `stock_universe` | 全市场股票池：股票代码、名称、交易所、是否 ST、是否退市风险、上市日期等基础状态信息。 |
 | `us_company_map` | 美国上市公司 ticker / CIK 映射，用于请求 SEC companyfacts。 |
@@ -184,13 +190,13 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `indicators.py` | 从 `price_data` 读取行情，计算技术指标，并写入 `indicators` 表。 |
+| `indicators.py` | 从 `price_data` 读取行情，计算日线技术指标；也可聚合生成周线行情并计算周线技术指标。 |
 | `calculate_buffett_metrics.py` | 从财务指标、三大报表和行情数据计算巴菲特式基本面指标，并写入 `buffett_metrics` 表。 |
 | `stock_financial_snapshot.py` | 输出单只股票近 N 年年报 ROE、净利润、毛利率、资产负债率；默认示例为贵州茅台。 |
 | `summary.py` | 读取最近 5 个交易日的价格和指标，输出终端摘要表。 |
 | `fundamental_screen.py` | 筛选近 10 年每年年报 ROE 大于阈值的公司，并输出平均 ROE、负债率和净利润增长率。 |
-| `scoring2.py` | 基于 KDJ、CCI、布林带、均线和成交量等条件，对标的进行短期关注度打分。 |
-| `scoring_benchmark.py` | 用趋势和波动率规则，对指定 ETF 最近 5 个交易日进行打分。 |
+| `short_term_oversold_score.py` | 基于 KDJ、CCI、布林带和均线等条件，对标的进行短期超跌关注度打分。 |
+| `etf_trend_volatility_score.py` | 用趋势和波动率规则，对指定 ETF 最近 5 个交易日进行打分。 |
 | `bond_stock_yearly_return.py` | 计算债券 ETF、沪深 300 ETF、中证 1000 ETF 等标的最近 10 个自然年的年度收益率。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
@@ -348,15 +354,17 @@ python -m data_fetch.update_financial_data --symbol sh600519
 
 ### 美国股票、ETF 和市场风险指标数据
 
-美国行情数据来自 Stooq CSV，watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Stooq 下载符号会自动转换为 `aapl.us`、`spy.us`、`brk-b.us` 这种格式。
+美国行情数据来自 Stooq，watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Stooq 下载符号会自动转换为 `aapl.us`、`spy.us`、`brk-b.us` 这种格式。
 
-Stooq 现在的 CSV 下载需要免费 apikey。先打开类似下面的页面，按 Stooq 页面提示完成 captcha 并复制带 apikey 的下载链接：
+Stooq CSV 直链偶尔不稳定，当前更新逻辑不再使用 CSV 直链，而是直接读取历史数据页：
 
 ```text
-https://stooq.com/q/d/?s=aapl.us&get_apikey
+https://stooq.com/q/d/?s=aapl.us&i=d
 ```
 
-然后把 key 设置到当前终端：
+该页面每页显示最近约 40 个交易日的数据。已有标的日常增量更新只读取第一页；如果是数据库里还没有记录的新 Stooq 标的，会自动按 `l=2`、`l=3` 这样的分页链接继续向后下载，默认最多下载前 10 页，约 400 个交易日，足够计算 MA、KDJ、CCI、布林带和 252 日波动率。项目里可以把 Nasdaq Composite 写成友好名称 `NDQ`，下载时会自动映射到 Stooq 页面符号 `^ndq`。
+
+旧版 apikey 环境变量仍兼容；如果未来 Stooq 恢复 CSV 端点，可以继续设置：
 
 ```bash
 export STOOQ_API_KEY="你的StooqKey"
@@ -451,6 +459,20 @@ python -m analysis.calculate_buffett_metrics --annual-only
 python -m analysis.indicators
 ```
 
+默认只计算日线指标，并写入 `indicators`。如果要计算周线指标，可以先确保日线行情已经更新，再运行：
+
+```bash
+python -m analysis.indicators --frequency weekly
+```
+
+也可以一次计算日线和周线：
+
+```bash
+python -m analysis.indicators --frequency all
+```
+
+周线行情会写入 `weekly_price_data`，周线指标会写入 `weekly_indicators`。聚合规则为：周内第一根日线作为 `open`，最高价取最大值，最低价取最小值，收盘价取该周最新一根日线的 `close`，成交量求和。如果在周中运行，最后一根周线会使用本周一到最新交易日的数据，`date` 记录最新交易日；下次运行会按 symbol 重建周线派生数据，避免保留过期的周中临时周线。
+
 输出最近 5 个交易日摘要。`analysis.summary` 支持用 `--group` 按分组筛选，也支持用 `--symbols` 手动指定内部 symbol：
 
 ```bash
@@ -465,6 +487,7 @@ python -m analysis.summary --group cn-etf --days 5
 | `cn-stock` | 中国股票，来自 `WATCHLIST["STOCK"]` | `python -m analysis.summary --group cn-stock` |
 | `us-etf` | 美国 ETF，来自 `WATCHLIST["US_ETF"]` | `python -m analysis.summary --group us-etf` |
 | `us-stock` | 美国股票，来自 `WATCHLIST["US_STOCK"]` | `python -m analysis.summary --group us-stock` |
+| `us-index` | 美国指数，来自 `WATCHLIST["US_INDEX"]`，例如 `NDQ` / Nasdaq Composite | `python -m analysis.summary --group us-index` |
 | `us-market-indicator` | Cboe VIX / VXN / VVIX / SKEW，只输出价格序列 | `python -m analysis.summary --group us-market-indicator` |
 | `us-risk` | 美国风险监控组合，默认包含 QQQ、SMH、VIX、VXN、VVIX、SKEW | `python -m analysis.summary --group us-risk` |
 
@@ -491,13 +514,13 @@ python -m analysis.fundamental_screen --output data/roe_screen.csv
 运行短期技术指标打分：
 
 ```bash
-python -m analysis.scoring2
+python -m analysis.short_term_oversold_score
 ```
 
 运行趋势 / 波动率打分示例：
 
 ```bash
-python -m analysis.scoring_benchmark
+python -m analysis.etf_trend_volatility_score
 ```
 
 查看最近 10 年自然年度收益率：
@@ -594,6 +617,9 @@ WATCHLIST = {
         "QQQ",
         "SMH",
     ],
+    "US_INDEX": [
+        "NDQ",
+    ],
     "US_STOCK": [
         "AAPL",
         "MSFT",
@@ -643,13 +669,14 @@ database/quant.db: price_data
         |
         v
 analysis/indicators.py
-        |
-        v
-database/quant.db: indicators
+        |------------------------------+
+        |                              |
+        v                              v
+database/quant.db: indicators          database/quant.db: weekly_price_data / weekly_indicators
         |
         +--> analysis/summary.py --group ...
-        +--> analysis/scoring2.py
-        +--> analysis/scoring_benchmark.py
+        +--> analysis/short_term_oversold_score.py
+        +--> analysis/etf_trend_volatility_score.py
         +--> visualization/
         +--> backtest/
 
@@ -724,6 +751,7 @@ database/quant.db: buffett_metrics
 | v7 | 暂停分红事件下载，删除 `financial_dividend_events` 表。 |
 | v8 | 移除分红相关指标字段。 |
 | v9 | 新增 `us_company_map`。当前美国公司财务下载已关闭，该表仅作为未来重新启用 SEC 数据时的预留结构。 |
+| v10 | 新增 `weekly_price_data` 和 `weekly_indicators`，支持由日线派生周线行情和周线技术指标。 |
 
 ## 注意事项
 
@@ -733,6 +761,7 @@ database/quant.db: buffett_metrics
 - 后续修改数据库结构时，推荐同时更新 `database/schema/base.sql` 和新增一份 `database/migrations/00N_*.sql`，再递增 `database/db_utils.py` 中的 `CURRENT_SCHEMA_VERSION`。
 - 当前 v1 迁移会为旧版 `price_data` 和 `indicators` 补齐 `created_at`、`updated_at` 字段，并记录版本号。
 - 第一版迁移机制保持简单，不重建历史表，也不会为已有旧表补复合外键约束。如需完全采用最新约束，建议先备份旧数据库，再重建数据库或后续补充更完整的迁移脚本。
+- 周线行情是从本地 `price_data` 派生出来的周级别数据，不额外请求外部周线接口；Cboe VIX / VXN / VVIX / SKEW 这类市场风险指标仍跳过 MA、KDJ、CCI、布林带等技术指标计算。
 - `asset_info` 暂时由 `database/init_asset_info.py` 手工维护，不从 `akshare` 自动同步。
 - `financial_indicators.announce_date` 目前保留为空字段；新浪三大报表的公告日保存在 `financial_statement_items.announce_date`。做严格历史回测时，应按公告日判断当时哪些财报已经可见，避免未来函数。
 - 财务数据不保存日频估值表；`buffett_metrics` 中涉及市值的字段只作为报告期层面的衍生结果保存。

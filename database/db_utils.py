@@ -19,7 +19,7 @@ MIGRATIONS_DIR = DATABASE_DIR / "migrations"
 
 # 当前代码支持的数据库结构版本。
 # 后续每新增一个 migration 文件，都要同步递增这个版本号。
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 def get_connection():
@@ -317,6 +317,12 @@ def _migrate_to_v9(conn):
     _run_sql_file(conn, _migration_path(9))
 
 
+def _migrate_to_v10(conn):
+    """迁移到 v10：新增周线行情和周线技术指标表。"""
+
+    _run_sql_file(conn, _migration_path(10))
+
+
 def _run_migrations(conn):
     """按版本顺序执行未完成的数据库迁移。"""
 
@@ -360,6 +366,10 @@ def _run_migrations(conn):
     if current_version < 9:
         _migrate_to_v9(conn)
         _set_schema_version(conn, 9)
+
+    if current_version < 10:
+        _migrate_to_v10(conn)
+        _set_schema_version(conn, 10)
 
 
 def get_latest_date(symbol):

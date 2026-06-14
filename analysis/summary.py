@@ -14,7 +14,7 @@ import pandas as pd
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
-from data_fetch.fetch_us_market import build_us_symbol
+from data_fetch.fetch_us_market import build_stooq_internal_symbol, build_us_symbol
 
 
 # =========================
@@ -151,6 +151,12 @@ def build_group_symbols(group):
         return [
             build_us_symbol(ticker)
             for ticker in WATCHLIST.get("US_STOCK", [])
+        ]
+
+    if group == "us-index":
+        return [
+            build_stooq_internal_symbol(symbol)
+            for symbol in WATCHLIST.get("US_INDEX", [])
         ]
 
     if group == "us-market-indicator":
@@ -352,6 +358,7 @@ def parse_args():
             "cn-stock",
             "us-etf",
             "us-stock",
+            "us-index",
             "us-market-indicator",
             "us-risk",
         ],

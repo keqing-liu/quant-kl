@@ -4,18 +4,43 @@
 SQLite 负责持久化保存结果。
 """
 
+import argparse
+
 import pandas as pd
 import numpy as np
 
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection, initialize_database
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+from data_fetch.fetch_us_market import build_stooq_internal_symbol
 
 
 SKIP_INDICATOR_SYMBOLS = {
     build_cboe_index_internal_symbol(symbol)
     for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
 }
+
+
+INDICATOR_COLUMNS = [
+    "symbol",
+    "date",
+    "MA20",
+    "MA50",
+    "MA60",
+    "RETURN",
+    "VOLATILITY20",
+    "VOLATILITY252",
+    "STD20",
+    "BOLL_UPPER",
+    "BOLL_LOWER",
+    "VOL5",
+    "VOL20",
+    "RSV",
+    "K",
+    "D",
+    "J",
+    "CCI",
+]
 
 
 # =========================
@@ -37,7 +62,16 @@ def get_all_symbols():
     conn.close()
 
     # df["symbol"] 是一列 Series；tolist() 转成普通 Python 列表。
-    return df["symbol"].tolist()
+    symbols = set(df["symbol"].tolist())
+
+    # Stooq 指数（例如 WATCHLIST["US_INDEX"] 中的 NDQ）也需要计算技术指标。
+    # 如果价格还没入库，后续 calculate_indicators 会清楚打印“没有价格数据，跳过”。
+    symbols.update(
+        build_stooq_internal_symbol(symbol)
+        for symbol in WATCHLIST.get("US_INDEX", [])
+    )
+
+    return sorted(symbols)
 
 
 # =========================
@@ -62,21 +96,51 @@ def load_price_data(symbol):
 
 
 # =========================
+# 周线行情聚合
+# =========================
+
+def aggregate_weekly_price_data(df):
+    """把日线行情聚合成周线行情，保留本周尚未收完的动态周线。"""
+
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+
+    weekly_df = (
+        df.resample("W-FRI", on="date")
+        .agg({
+            "symbol": "first",
+            "date": "max",
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+        })
+        .dropna(subset=["symbol", "date", "close"])
+        .reset_index(drop=True)
+    )
+
+    weekly_df["date"] = weekly_df["date"].dt.strftime("%Y-%m-%d")
+
+    return weekly_df
+
+
+# =========================
 # 计算单个 ETF / 股票指标
 # =========================
 
-def calculate_indicators(symbol):
-
-    print(f"开始计算 {symbol} 指标...")
-
-    # 先把该标的全部价格数据取出来。
-    df = load_price_data(symbol)
+def calculate_indicator_frame(df):
+    """对任意 OHLCV 行情 DataFrame 计算技术指标。"""
 
     if df.empty:
-        print(f"{symbol} 没有价格数据，跳过")
         return None
 
     # 日期转换：SQLite 中读出来通常是字符串，转 datetime 后方便排序和比较。
+    df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
 
     # reset_index(drop=True) 重新生成 0,1,2... 的行号，方便后面用 loc[i]。
@@ -92,10 +156,10 @@ def calculate_indicators(symbol):
     df["MA60"] = df["close"].rolling(window=60).mean()
 
     # =========================
-    # Daily Return
+    # Return
     # =========================
 
-    # pct_change() 计算相邻两天的百分比变化：(今天/昨天 - 1)。
+    # pct_change() 计算相邻两根 K 线的百分比变化：(本期/上期 - 1)。
     df["RETURN"] = df["close"].pct_change()
 
     # =========================
@@ -110,7 +174,7 @@ def calculate_indicators(symbol):
     # Bollinger Bands
     # =========================
 
-    # 布林带通常用 20 日均线 +/- 2 倍标准差。
+    # 布林带通常用 20 期均线 +/- 2 倍标准差。
     df["STD20"] = df["close"].rolling(window=20).std()
 
     df["BOLL_UPPER"] = df["MA20"] + 2 * df["STD20"]
@@ -128,7 +192,7 @@ def calculate_indicators(symbol):
     # KDJ
     # =========================
 
-    # KDJ 的 RSV 使用最近 9 日最高价和最低价衡量收盘价所处位置。
+    # KDJ 的 RSV 使用最近 9 期最高价和最低价衡量收盘价所处位置。
     low_n = df["low"].rolling(window=9).min()
     high_n = df["high"].rolling(window=9).max()
 
@@ -171,7 +235,7 @@ def calculate_indicators(symbol):
         + df["close"]
     ) / 3
 
-    # 典型价格的 14 日均线。
+    # 典型价格的 14 期均线。
     ma_tp = tp.rolling(window=14).mean()
 
     # mean deviation：平均绝对偏差。lambda x 是对每个滚动窗口执行的小函数。
@@ -188,46 +252,60 @@ def calculate_indicators(symbol):
     # 只保留 indicators 表需要的列
     # =========================
 
-    indicator_df = df[[
-        "symbol",
-        "date",
-
-        "MA20",
-        "MA50",
-        "MA60",
-        "RETURN",
-
-        "VOLATILITY20",
-        "VOLATILITY252",
-
-        "STD20",
-        "BOLL_UPPER",
-        "BOLL_LOWER",
-
-        "VOL5",
-        "VOL20",
-
-        "RSV",
-        "K",
-        "D",
-        "J",
-
-        "CCI"
-    ]].copy()
+    indicator_df = df[INDICATOR_COLUMNS].copy()
 
     # SQLite 没有真正的日期类型；保存成 YYYY-MM-DD 文本最简单清晰。
     indicator_df["date"] = indicator_df["date"].dt.strftime("%Y-%m-%d")
 
-    print(f"{symbol} 指标计算完成")
+    return indicator_df
+
+
+def calculate_indicators(symbol):
+
+    print(f"开始计算 {symbol} 日线指标...")
+
+    # 先把该标的全部价格数据取出来。
+    df = load_price_data(symbol)
+
+    if df.empty:
+        print(f"{symbol} 没有价格数据，跳过")
+        return None
+
+    indicator_df = calculate_indicator_frame(df)
+
+    print(f"{symbol} 日线指标计算完成")
 
     return indicator_df
+
+
+def calculate_weekly_indicators(symbol):
+
+    print(f"开始计算 {symbol} 周线指标...")
+
+    daily_df = load_price_data(symbol)
+
+    if daily_df.empty:
+        print(f"{symbol} 没有价格数据，跳过")
+        return None, None
+
+    weekly_df = aggregate_weekly_price_data(daily_df)
+
+    if weekly_df.empty:
+        print(f"{symbol} 没有可聚合的周线数据，跳过")
+        return None, None
+
+    indicator_df = calculate_indicator_frame(weekly_df)
+
+    print(f"{symbol} 周线指标计算完成")
+
+    return weekly_df, indicator_df
 
 
 # =========================
 # 保存指标到 SQLite
 # =========================
 
-def save_indicators(indicator_df):
+def save_indicators(indicator_df, table_name="indicators"):
 
     # 没有数据时直接返回，避免后面的 SQL 写入报错。
     if indicator_df is None or indicator_df.empty:
@@ -236,8 +314,11 @@ def save_indicators(indicator_df):
     conn = get_connection()
     cursor = conn.cursor()
 
-    sql = """
-    INSERT OR REPLACE INTO indicators (
+    if table_name not in {"indicators", "weekly_indicators"}:
+        raise ValueError(f"不支持的指标表: {table_name}")
+
+    sql = f"""
+    INSERT OR REPLACE INTO {table_name} (
         symbol,
         date,
 
@@ -289,16 +370,65 @@ def save_indicators(indicator_df):
     conn.commit()
     conn.close()
 
-    print(f"写入 indicators 表完成：{len(indicator_df)} 行")
+    print(f"写入 {table_name} 表完成：{len(indicator_df)} 行")
 
 
-def run_indicator_analysis():
+def save_weekly_price_data(symbol, weekly_df):
 
-    # 先确保 price_data 和 indicators 等基础表存在。
-    initialize_database()
+    # 没有数据时直接返回，避免后面的 SQL 写入报错。
+    if weekly_df is None or weekly_df.empty:
+        return
 
-    # 从 price_data 表自动发现要计算的标的。
-    symbols = get_all_symbols()
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 周中临时周线的 date 会从周三变周四、再变周五。
+    # 每次按 symbol 重建派生周线，避免留下过期的本周临时记录。
+    cursor.execute(
+        """
+        DELETE FROM weekly_price_data
+        WHERE symbol = ?
+        """,
+        (symbol,),
+    )
+
+    sql = """
+    INSERT OR REPLACE INTO weekly_price_data (
+        symbol,
+        date,
+        open,
+        high,
+        low,
+        close,
+        volume
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+
+    data = list(
+        weekly_df[[
+            "symbol",
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]].itertuples(
+            index=False,
+            name=None
+        )
+    )
+
+    cursor.executemany(sql, data)
+
+    conn.commit()
+    conn.close()
+
+    print(f"写入 weekly_price_data 表完成：{len(weekly_df)} 行")
+
+
+def run_daily_indicator_analysis(symbols):
 
     for symbol in symbols:
 
@@ -316,10 +446,61 @@ def run_indicator_analysis():
             # 单个 symbol 出错不影响其他 symbol 继续计算。
             print(f"{symbol} 指标计算失败: {e}")
 
+
+def run_weekly_indicator_analysis(symbols):
+
+    for symbol in symbols:
+
+        if symbol in SKIP_INDICATOR_SYMBOLS:
+            print(f"{symbol} 是市场风险指标，跳过周线技术指标计算")
+            continue
+
+        try:
+
+            weekly_df, indicator_df = calculate_weekly_indicators(symbol)
+
+            save_weekly_price_data(symbol, weekly_df)
+            save_indicators(indicator_df, table_name="weekly_indicators")
+
+        except Exception as e:
+            # 单个 symbol 出错不影响其他 symbol 继续计算。
+            print(f"{symbol} 周线指标计算失败: {e}")
+
+
+def run_indicator_analysis(frequency="daily"):
+
+    # 先确保 price_data 和 indicators 等基础表存在。
+    initialize_database()
+
+    # 从 price_data 表自动发现要计算的标的。
+    symbols = get_all_symbols()
+
+    if frequency not in {"daily", "weekly", "all"}:
+        raise ValueError(f"不支持的 frequency: {frequency}")
+
+    if frequency in {"daily", "all"}:
+        run_daily_indicator_analysis(symbols)
+
+    if frequency in {"weekly", "all"}:
+        run_weekly_indicator_analysis(symbols)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="计算日线或周线技术指标")
+    parser.add_argument(
+        "--frequency",
+        choices=["daily", "weekly", "all"],
+        default="daily",
+        help="指标计算频率；默认 daily，weekly 会由日线聚合生成周线",
+    )
+
+    return parser.parse_args()
+
 # =========================
 # 主程序
 # =========================
 
 if __name__ == "__main__":
 
-    run_indicator_analysis()
+    args = parse_args()
+    run_indicator_analysis(frequency=args.frequency)

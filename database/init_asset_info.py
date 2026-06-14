@@ -217,8 +217,8 @@ ASSETS = [
         "data_source": "yfinance",
         "benchmark_symbol": "us_spy",
         "benchmark_name": "S&P 500",
-        "is_active": 1,
-        "note": "美国 S&P 500 ETF",
+        "is_active": 0,
+        "note": "与 SPY 重复，当前不纳入日常观察",
     },
     {
         "symbol": "us_qqq",
@@ -231,6 +231,22 @@ ASSETS = [
         "benchmark_name": "Nasdaq 100",
         "is_active": 1,
         "note": "美国 Nasdaq 100 ETF",
+    },
+
+    # =========================
+    # 美国指数
+    # =========================
+    {
+        "symbol": "stooq_ndq",
+        "name": "Nasdaq Composite",
+        "asset_type": "US_INDEX",
+        "asset_class": "EQUITY",
+        "market": "US",
+        "data_source": "stooq",
+        "benchmark_symbol": "stooq_ndq",
+        "benchmark_name": "Nasdaq Composite",
+        "is_active": 1,
+        "note": "Stooq 符号 ^ndq，配置中写作 NDQ",
     },
 
     # =========================

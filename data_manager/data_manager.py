@@ -30,6 +30,7 @@ class DataManager:
         download_func,
         asset_type,
         data_source,
+        full_history_on_empty_db=False,
     ):
         """更新单个 symbol 的价格数据，并写入 data_update_log。"""
 
@@ -56,7 +57,10 @@ class DataManager:
             # 2. 下载数据
             # =========================
 
-            df = download_func(symbol)
+            if full_history_on_empty_db and latest_date_before is None:
+                df = download_func(symbol, full_history=True)
+            else:
+                df = download_func(symbol)
 
             # 如果下载函数返回 None 或空 DataFrame，也要写日志。
             if df is None or df.empty:
@@ -246,6 +250,7 @@ class DataManager:
             download_func=download_us_market_data,
             asset_type="US_STOCK",
             data_source="stooq",
+            full_history_on_empty_db=True,
         )
 
     def update_us_etf(self, ticker):
@@ -256,6 +261,7 @@ class DataManager:
             download_func=download_us_market_data,
             asset_type="US_ETF",
             data_source="stooq",
+            full_history_on_empty_db=True,
         )
 
     def update_us_index(self, symbol):
@@ -266,6 +272,7 @@ class DataManager:
             download_func=download_stooq_data,
             asset_type="US_INDEX",
             data_source="stooq",
+            full_history_on_empty_db=True,
         )
 
     def update_us_market_indicator(self, symbol):

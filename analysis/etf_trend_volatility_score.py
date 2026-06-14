@@ -1,4 +1,4 @@
-"""股债轮动信号：用简单规则判断股票ETF是否值得关注。
+"""ETF 趋势/波动率评分：用趋势和波动率规则判断股票 ETF 是否值得关注。
 
 数据来源：
 1. price_data 表：读取 close 收盘价
@@ -142,7 +142,7 @@ def run_signal_check(target_symbols):
 
     print("\n")
     print("=" * 120)
-    print("ETF 技术指标打分（最近5个交易日）")
+    print("ETF 趋势/波动率评分（最近5个交易日）")
     print("=" * 120)
 
     signal_df = pd.DataFrame(all_signals)

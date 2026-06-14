@@ -57,19 +57,27 @@ def run_group_summary(group):
 
 
 def run_score(_args):
-    """Run the existing short-term technical score check."""
+    """Run the short-term oversold score check."""
 
-    from analysis.scoring2 import run_signal_check
+    from analysis.short_term_oversold_score import run_signal_check
 
     run_signal_check()
 
 
 def run_trend(_args):
-    """Run the existing trend / volatility score example."""
+    """Run the ETF trend / volatility score example."""
 
-    from analysis.scoring_benchmark import run_signal_check
+    from analysis.etf_trend_volatility_score import run_signal_check
 
     run_signal_check(["sh510310"])
+
+
+def run_weekly_indicators(_args):
+    """Aggregate daily prices to weekly bars and calculate weekly indicators."""
+
+    from analysis.indicators import run_indicator_analysis
+
+    run_indicator_analysis(frequency="weekly")
 
 
 def add_days_argument(parser):
@@ -156,6 +164,12 @@ def build_parser():
         help="运行趋势 / 波动率打分示例",
     )
     trend_parser.set_defaults(func=run_trend)
+
+    weekly_parser = etf_subparsers.add_parser(
+        "weekly",
+        help="由日线聚合周线行情，并计算周线技术指标",
+    )
+    weekly_parser.set_defaults(func=run_weekly_indicators)
 
     return parser
 

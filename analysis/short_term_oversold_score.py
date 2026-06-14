@@ -1,7 +1,7 @@
-"""基于技术指标给 ETF / 股票打分，筛选值得关注的标的。选出短期超跌的etf
+"""短期超跌评分：用 KDJ、CCI、布林带和均线筛选值得关注的 ETF / 股票。
 
 数据来源：
-1. price_data 表：读取 close、volume 等原始行情
+1. price_data 表：读取 close 等原始行情
 2. indicators 表：读取已经计算好的技术指标
 """
 
@@ -43,7 +43,7 @@ def load_latest_indicator(symbol):
 
     # JOIN:
     # indicators 表保存技术指标，
-    # price_data 表保存 close / volume 等原始行情。
+    # price_data 表保存 close 等原始行情。
     #
     # 通过 symbol + date 连接两张表。
     df = pd.read_sql("""
@@ -54,15 +54,12 @@ def load_latest_indicator(symbol):
             i.date,
 
             p.close,
-            p.volume,
 
             i.MA20,
             i.MA60,
 
             i.BOLL_UPPER,
             i.BOLL_LOWER,
-
-            i.VOL5,
 
             i.K,
             i.D,
@@ -130,7 +127,7 @@ def check_signal(symbol):
     # CCI < -100：
     # 价格偏离均值较大，
     # 有时意味着超卖。
-    if latest["CCI"] < -100:
+    if latest["CCI"] < -120:
         score += 1
 
     # 收盘价接近布林下轨：
@@ -144,12 +141,6 @@ def check_signal(symbol):
     # MA20 > MA60：
     # 短期趋势强于中期趋势。
     if latest["MA20"] > latest["MA60"]:
-        score += 1
-
-    # volume > VOL5：
-    # 当天成交量高于 5 日平均成交量，
-    # 说明市场活跃度较高。
-    if latest["volume"] > latest["VOL5"]:
         score += 1
 
     # =========================
@@ -216,7 +207,7 @@ def run_signal_check():
 
     print("\n")
     print("=" * 120)
-    print("ETF 技术指标打分（分数越高越值得关注）")
+    print("短期超跌评分（分数越高越值得关注）")
     print("=" * 120)
 
     signal_df = pd.DataFrame(signals)
