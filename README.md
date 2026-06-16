@@ -18,6 +18,8 @@
 | 短期技术指标打分 | `python -m quant e score` |
 | 趋势 / 波动率打分示例 | `python -m quant e trend` |
 | 聚合周线并计算周线指标 | `python -m quant e weekly` |
+| 查看中美 ETF 周线摘要 | `python -m quant e weekly-summary --days 5` |
+| 补全单个 Stooq 标的历史行情 | `python -m quant e backfill NDQ` |
 
 也可以给当前 shell 加一个别名，让命令更短：
 
@@ -32,6 +34,7 @@ q e update
 q e summary
 q e risk
 q e weekly
+q e weekly-summary
 ```
 
 ## 功能概览
@@ -364,6 +367,20 @@ https://stooq.com/q/d/?s=aapl.us&i=d
 
 该页面每页显示最近约 40 个交易日的数据。已有标的日常增量更新只读取第一页；如果是数据库里还没有记录的新 Stooq 标的，会自动按 `l=2`、`l=3` 这样的分页链接继续向后下载，默认最多下载前 10 页，约 400 个交易日，足够计算 MA、KDJ、CCI、布林带和 252 日波动率。项目里可以把 Nasdaq Composite 写成友好名称 `NDQ`，下载时会自动映射到 Stooq 页面符号 `^ndq`。
 
+如果要给单个 Stooq 标的补全全部可见历史，不想跑完整 watchlist，可以使用 `backfill`。它只补缺失日期，不覆盖已有同日记录；完成后会自动重新计算日线指标：
+
+```bash
+python -m quant e backfill NDQ
+python -m quant e backfill QQQ
+python -m quant e backfill AAPL
+```
+
+调试命令链路时可以限制页数，例如只下载前 2 页：
+
+```bash
+python -m quant e backfill NDQ --max-pages 2
+```
+
 旧版 apikey 环境变量仍兼容；如果未来 Stooq 恢复 CSV 端点，可以继续设置：
 
 ```bash
@@ -473,10 +490,17 @@ python -m analysis.indicators --frequency all
 
 周线行情会写入 `weekly_price_data`，周线指标会写入 `weekly_indicators`。聚合规则为：周内第一根日线作为 `open`，最高价取最大值，最低价取最小值，收盘价取该周最新一根日线的 `close`，成交量求和。如果在周中运行，最后一根周线会使用本周一到最新交易日的数据，`date` 记录最新交易日；下次运行会按 symbol 重建周线派生数据，避免保留过期的周中临时周线。
 
-输出最近 5 个交易日摘要。`analysis.summary` 支持用 `--group` 按分组筛选，也支持用 `--symbols` 手动指定内部 symbol：
+输出最近 5 个交易日摘要。`analysis.summary` 默认读取日线表，支持用 `--group` 按分组筛选，也支持用 `--symbols` 手动指定内部 symbol：
 
 ```bash
 python -m analysis.summary --group cn-etf --days 5
+```
+
+如果已经运行过周线聚合和周线指标计算，可以输出最近 5 根周线摘要：
+
+```bash
+python -m quant e weekly-summary --days 5
+python -m analysis.summary --group cn-etf --days 5 --frequency weekly
 ```
 
 常用分组：

@@ -31,6 +31,8 @@ class DataManager:
         asset_type,
         data_source,
         full_history_on_empty_db=False,
+        force_full_history=False,
+        max_pages=None,
     ):
         """更新单个 symbol 的价格数据，并写入 data_update_log。"""
 
@@ -57,7 +59,9 @@ class DataManager:
             # 2. 下载数据
             # =========================
 
-            if full_history_on_empty_db and latest_date_before is None:
+            if force_full_history:
+                df = download_func(symbol, full_history=True, max_pages=max_pages)
+            elif full_history_on_empty_db and latest_date_before is None:
                 df = download_func(symbol, full_history=True)
             else:
                 df = download_func(symbol)
@@ -97,7 +101,7 @@ class DataManager:
             # 4. 过滤增量数据
             # =========================
 
-            if latest_date_dt is not None:
+            if latest_date_dt is not None and not force_full_history:
                 df = df[df["date"] > latest_date_dt]
 
             # 如果接口有数据，但没有比数据库更新的数据，也要写日志。
@@ -283,4 +287,34 @@ class DataManager:
             download_func=download_cboe_index_data,
             asset_type="US_MARKET_INDICATOR",
             data_source="cboe",
+        )
+
+    def backfill_stooq_symbol(self, symbol, max_pages=None):
+        """只补一个 Stooq 股票/ETF/指数的历史行情。"""
+
+        normalized = str(symbol).strip()
+        normalized_lower = normalized.lower()
+
+        if (
+            normalized.startswith("^")
+            or normalized_lower.startswith("stooq_")
+            or normalized_lower in {"ndq"}
+        ):
+            self._update_price_data(
+                symbol=build_stooq_internal_symbol(normalized),
+                download_func=download_stooq_data,
+                asset_type="US_INDEX",
+                data_source="stooq",
+                force_full_history=True,
+                max_pages=max_pages,
+            )
+            return
+
+        self._update_price_data(
+            symbol=build_us_symbol(normalized),
+            download_func=download_us_market_data,
+            asset_type="US_STOCK",
+            data_source="stooq",
+            force_full_history=True,
+            max_pages=max_pages,
         )

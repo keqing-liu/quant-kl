@@ -3,10 +3,8 @@
 akshare 是常用的中文金融数据接口库；这里用它从新浪接口取 ETF 历史行情。
 """
 
-import akshare as ak
-
-
 def download_etf_data(symbol):
+    import akshare as ak
 
     # fund_etf_hist_sina 返回一个 pandas DataFrame，通常包含 date/open/high/low/close/volume。
     df = ak.fund_etf_hist_sina(

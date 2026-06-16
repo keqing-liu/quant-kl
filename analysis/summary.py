@@ -1,10 +1,12 @@
-"""从 SQLite 数据库读取最近几天的技术指标，并打印成摘要表。
+"""从 SQLite 数据库读取最近几天/几周的技术指标，并打印成摘要表。
 
 这个脚本主要用于快速查看每个 ETF / 股票最近的技术指标状态。
 
 数据来源：
 1. price_data 表：保存原始行情数据，例如 close
 2. indicators 表：保存已经计算好的技术指标
+3. weekly_price_data 表：保存周线行情数据
+4. weekly_indicators 表：保存已经计算好的周线技术指标
 """
 
 import argparse
@@ -21,15 +23,27 @@ from data_fetch.fetch_us_market import build_stooq_internal_symbol, build_us_sym
 # 读取数据库中的所有 symbol
 # =========================
 
-def get_all_symbols():
+def get_frequency_tables(frequency):
+    if frequency == "daily":
+        return "price_data", "indicators", "交易日"
+
+    if frequency == "weekly":
+        return "weekly_price_data", "weekly_indicators", "周线"
+
+    raise ValueError(f"不支持的 frequency: {frequency}")
+
+
+def get_all_symbols(frequency="daily"):
 
     # 获取 SQLite 数据库连接。
     conn = get_connection()
 
+    _price_table, indicator_table, _period_label = get_frequency_tables(frequency)
+
     # 从 indicators 表中找出所有已经计算过指标的 symbol。
-    df = pd.read_sql("""
+    df = pd.read_sql(f"""
         SELECT DISTINCT symbol
-        FROM indicators
+        FROM {indicator_table}
         ORDER BY symbol
     """, conn)
 
@@ -43,10 +57,12 @@ def get_all_symbols():
 # 读取单个 symbol 的摘要数据
 # =========================
 
-def load_summary_data(symbol, days=5):
+def load_summary_data(symbol, days=5, frequency="daily"):
 
     # 获取 SQLite 数据库连接。
     conn = get_connection()
+
+    price_table, indicator_table, _period_label = get_frequency_tables(frequency)
 
     # 从 indicators 表读取技术指标。
     # 同时 JOIN price_data 表读取 close 收盘价。
@@ -59,7 +75,7 @@ def load_summary_data(symbol, days=5):
     #
     # LIMIT ?：
     # 只读取最近 N 个交易日。
-    df = pd.read_sql("""
+    df = pd.read_sql(f"""
         SELECT
             i.date,
             p.close,
@@ -79,9 +95,9 @@ def load_summary_data(symbol, days=5):
 
             i.CCI
 
-        FROM indicators AS i
+        FROM {indicator_table} AS i
 
-        JOIN price_data AS p
+        JOIN {price_table} AS p
         ON i.symbol = p.symbol
         AND i.date = p.date
 
@@ -97,14 +113,16 @@ def load_summary_data(symbol, days=5):
     return df
 
 
-def load_price_summary_data(symbol, days=5):
+def load_price_summary_data(symbol, days=5, frequency="daily"):
 
     # VIX / VXN 这类市场风险指标只保存在 price_data。
     # 它们本身就是指标，所以不会写入 indicators 表。
     # 因此这里单独读取 OHLC，而不是 JOIN indicators。
     conn = get_connection()
 
-    df = pd.read_sql("""
+    price_table, _indicator_table, _period_label = get_frequency_tables(frequency)
+
+    df = pd.read_sql(f"""
         SELECT
             date,
             open,
@@ -113,7 +131,7 @@ def load_price_summary_data(symbol, days=5):
             close,
             volume
 
-        FROM price_data
+        FROM {price_table}
 
         WHERE symbol = ?
 
@@ -222,19 +240,23 @@ def get_all_price_symbols():
 # 输出单个 ETF / 股票摘要
 # =========================
 
-def print_summary(symbol, days=5):
+def print_summary(symbol, days=5, frequency="daily"):
 
+    _price_table, _indicator_table, period_label = get_frequency_tables(frequency)
     print("\n")
     print("=" * 80)
-    print(f"{symbol} 最近{days}个交易日技术指标")
+    print(f"{symbol} 最近{days}个{period_label}技术指标")
     print("=" * 80)
 
     # 从 SQLite 读取最近 5 天数据。
-    recent = load_summary_data(symbol, days=days)
+    recent = load_summary_data(symbol, days=days, frequency=frequency)
 
     # 如果没有数据，直接提示并返回。
     if recent.empty:
-        print(f"{symbol} 没有指标数据，请先运行 indicator.py")
+        if frequency == "weekly":
+            print(f"{symbol} 没有周线指标数据，请先运行 python -m quant e weekly")
+        else:
+            print(f"{symbol} 没有指标数据，请先运行 indicator.py")
         return
 
     # 把字符串日期转为 datetime，方便格式化。
@@ -275,17 +297,21 @@ def print_summary(symbol, days=5):
     print(recent.to_string(index=False))
 
 
-def print_price_summary(symbol, days=5):
+def print_price_summary(symbol, days=5, frequency="daily"):
 
+    _price_table, _indicator_table, period_label = get_frequency_tables(frequency)
     print("\n")
     print("=" * 80)
-    print(f"{symbol} 最近{days}个交易日价格序列")
+    print(f"{symbol} 最近{days}个{period_label}价格序列")
     print("=" * 80)
 
-    recent = load_price_summary_data(symbol, days=days)
+    recent = load_price_summary_data(symbol, days=days, frequency=frequency)
 
     if recent.empty:
-        print(f"{symbol} 没有价格数据，请先运行 main.py")
+        if frequency == "weekly":
+            print(f"{symbol} 没有周线价格数据，请先运行 python -m quant e weekly")
+        else:
+            print(f"{symbol} 没有价格数据，请先运行 main.py")
         return
 
     recent["date"] = pd.to_datetime(recent["date"]).dt.strftime("%Y-%m-%d")
@@ -308,14 +334,17 @@ def print_price_summary(symbol, days=5):
 # 批量输出所有 symbol 摘要
 # =========================
 
-def run_summary(symbols=None, group="all", days=5):
+def run_summary(symbols=None, group="all", days=5, frequency="daily"):
 
     # --symbols 优先级最高：用户手动指定时，就不再理会 --group。
     # 如果没有 --symbols，才根据 --group 从 watchlist 里推导 symbol。
     if symbols:
         selected_symbols = symbols
     else:
-        selected_symbols = build_group_symbols(group)
+        if group == "all":
+            selected_symbols = get_all_symbols(frequency=frequency)
+        else:
+            selected_symbols = build_group_symbols(group)
 
     if not selected_symbols:
         print("没有找到要输出的 symbol，请检查分组或 watchlist")
@@ -330,9 +359,9 @@ def run_summary(symbols=None, group="all", days=5):
             # VIX / VXN 没有技术指标记录，所以走 price_data 输出。
             # ETF / 股票已经由 analysis.indicators 写入 indicators，所以走技术指标输出。
             if symbol in market_indicator_symbols:
-                print_price_summary(symbol, days=days)
+                print_price_summary(symbol, days=days, frequency=frequency)
             else:
-                print_summary(symbol, days=days)
+                print_summary(symbol, days=days, frequency=frequency)
 
         except Exception as e:
 
@@ -370,7 +399,14 @@ def parse_args():
         "--days",
         type=int,
         default=5,
-        help="输出最近几个交易日；默认 5",
+        help="输出最近几个交易日/几根周线；默认 5",
+    )
+
+    parser.add_argument(
+        "--frequency",
+        choices=["daily", "weekly"],
+        default="daily",
+        help="摘要频率；daily 读取日线表，weekly 读取周线表；默认 daily",
     )
 
     parser.add_argument(
@@ -393,4 +429,5 @@ if __name__ == "__main__":
         symbols=args.symbols,
         group=args.group,
         days=args.days,
+        frequency=args.frequency,
     )

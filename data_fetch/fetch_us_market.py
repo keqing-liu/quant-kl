@@ -25,7 +25,7 @@ STOOQ_HISTORY_URL = "https://stooq.com/q/d/"
 STOOQ_DOWNLOAD_URL = STOOQ_CSV_DOWNLOAD_URL
 STOOQ_VERIFY_URL = "https://stooq.com/__verify"
 STOOQ_API_KEY_ENV = "STOOQ_API_KEY"
-STOOQ_PAGE_DELAY_SECONDS = 1
+STOOQ_PAGE_DELAY_SECONDS = 2
 STOOQ_INITIAL_HISTORY_MAX_PAGES = 10
 STOOQ_CSV_DOWNLOAD_RETRIES = 3
 STOOQ_CSV_DOWNLOAD_RETRY_DELAY_SECONDS = 2
@@ -199,6 +199,16 @@ def _is_stooq_browser_challenge(text):
     )
 
 
+def _is_stooq_manual_captcha(text):
+    """判断 Stooq 是否返回了人工输入验证码页。"""
+
+    return (
+        "Rewrite the above code" in text
+        or "Wrong code! Try again" in text
+        or "/q/l/s/i/?" in text
+    )
+
+
 def _extract_stooq_challenge(text):
     """从 Stooq 验证页中提取 proof-of-work challenge。"""
 
@@ -362,6 +372,11 @@ def _read_stooq_history_html(opener, url):
     if _is_stooq_browser_challenge(html):
         raise RuntimeError("Stooq 仍然返回浏览器验证页，无法解析历史页")
 
+    if _is_stooq_manual_captcha(html):
+        raise RuntimeError(
+            "Stooq 触发人工验证码，无法自动下载；请稍后重试或降低分页数量"
+        )
+
     return html
 
 
@@ -451,10 +466,11 @@ def _download_stooq_history_page(stooq_symbol, opener=None, page=1):
 
 
 def _download_stooq_full_history(stooq_symbol, max_pages=STOOQ_INITIAL_HISTORY_MAX_PAGES):
-    """分页下载 Stooq 历史页；默认只取前 10 页，足够计算技术指标。"""
+    """分页下载 Stooq 历史页；max_pages=None 表示下载所有分页。"""
 
     opener = _build_stooq_opener()
     first_url = _build_stooq_history_url(stooq_symbol)
+    print(f"Stooq {stooq_symbol} 正在下载第 1 页")
 
     try:
         for attempt in range(1, STOOQ_EMPTY_PAGE_RETRIES + 1):
@@ -469,16 +485,21 @@ def _download_stooq_full_history(stooq_symbol, max_pages=STOOQ_INITIAL_HISTORY_M
         raise RuntimeError(f"Stooq 初始历史页下载失败: {exc}") from exc
 
     if first_df.empty:
-        raise RuntimeError("Stooq 初始历史第一页没有解析到数据")
+        raise RuntimeError("Stooq 第 1 页没有解析到数据")
 
     available_pages = _extract_stooq_max_history_page(first_html)
-    max_page = min(available_pages, max_pages)
+    if max_pages is None:
+        max_page = available_pages
+    else:
+        max_page = min(available_pages, max_pages)
 
     frames = [first_df]
 
     for page in range(2, max_page + 1):
         if STOOQ_PAGE_DELAY_SECONDS > 0:
             time.sleep(STOOQ_PAGE_DELAY_SECONDS)
+
+        print(f"Stooq {stooq_symbol} 正在下载第 {page}/{max_page} 页")
 
         try:
             page_df = _download_stooq_history_page(
@@ -510,28 +531,30 @@ def _download_stooq_full_history(stooq_symbol, max_pages=STOOQ_INITIAL_HISTORY_M
     return df[PRICE_COLUMNS].sort_values("date").reset_index(drop=True)
 
 
-def _download_stooq_price_data(stooq_symbol, full_history=False):
+def _download_stooq_price_data(stooq_symbol, full_history=False, max_pages=STOOQ_INITIAL_HISTORY_MAX_PAGES):
     """用 Stooq 历史页表格下载行情，避免不稳定的 CSV 直链。"""
 
     if full_history:
-        return _download_stooq_full_history(stooq_symbol)
+        return _download_stooq_full_history(stooq_symbol, max_pages=max_pages)
 
     return _download_stooq_history_page(stooq_symbol)
 
 
-def download_us_market_data(symbol, full_history=False):
+def download_us_market_data(symbol, full_history=False, max_pages=STOOQ_INITIAL_HISTORY_MAX_PAGES):
     """用 Stooq 下载美国市场日线行情，返回 price_data 兼容字段。"""
 
     return _download_stooq_price_data(
         build_stooq_symbol(symbol),
         full_history=full_history,
+        max_pages=max_pages,
     )
 
 
-def download_stooq_data(symbol, full_history=False):
+def download_stooq_data(symbol, full_history=False, max_pages=STOOQ_INITIAL_HISTORY_MAX_PAGES):
     """用 Stooq 原始符号下载指数/指标日线行情。"""
 
     return _download_stooq_price_data(
         normalize_stooq_symbol(symbol),
         full_history=full_history,
+        max_pages=max_pages,
     )

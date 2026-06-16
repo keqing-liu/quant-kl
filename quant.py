@@ -42,6 +42,20 @@ def run_etf_summary(args):
     run_summary(group="us-etf", days=args.days)
 
 
+def run_etf_weekly_summary(args):
+    """Show both China ETF and US ETF weekly summaries."""
+
+    from analysis.summary import run_summary
+
+    print("中国 ETF 周线摘要")
+    print("=" * 120)
+    run_summary(group="cn-etf", days=args.days, frequency="weekly")
+
+    print("\n美国 ETF 周线摘要")
+    print("=" * 120)
+    run_summary(group="us-etf", days=args.days, frequency="weekly")
+
+
 def run_group_summary(group):
     """Build a handler for one summary group."""
 
@@ -78,6 +92,18 @@ def run_weekly_indicators(_args):
     from analysis.indicators import run_indicator_analysis
 
     run_indicator_analysis(frequency="weekly")
+
+
+def run_backfill(args):
+    """Backfill one Stooq stock/ETF/index symbol."""
+
+    from data_manager.data_manager import DataManager
+    from database.db_utils import initialize_database
+
+    initialize_database()
+
+    manager = DataManager()
+    manager.backfill_stooq_symbol(args.symbol, max_pages=args.max_pages)
 
 
 def add_days_argument(parser):
@@ -132,6 +158,13 @@ def build_parser():
     add_days_argument(summary_parser)
     summary_parser.set_defaults(func=run_etf_summary)
 
+    weekly_summary_parser = etf_subparsers.add_parser(
+        "weekly-summary",
+        help="输出中国 ETF 和美国 ETF 周线摘要",
+    )
+    add_days_argument(weekly_summary_parser)
+    weekly_summary_parser.set_defaults(func=run_etf_weekly_summary)
+
     cn_parser = etf_subparsers.add_parser(
         "cn",
         help="只输出中国 ETF 摘要",
@@ -170,6 +203,22 @@ def build_parser():
         help="由日线聚合周线行情，并计算周线技术指标",
     )
     weekly_parser.set_defaults(func=run_weekly_indicators)
+
+    backfill_parser = etf_subparsers.add_parser(
+        "backfill",
+        help="只补一个 Stooq 股票/ETF/指数的历史行情",
+    )
+    backfill_parser.add_argument(
+        "symbol",
+        help="Stooq 标的，例如 NDQ、^ndq、QQQ、AAPL、SPY、BRK-B",
+    )
+    backfill_parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="最多下载多少页；默认不限制，下载 Stooq 可见全部分页",
+    )
+    backfill_parser.set_defaults(func=run_backfill)
 
     return parser
 
