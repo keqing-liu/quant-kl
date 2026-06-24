@@ -8,7 +8,7 @@ WATCHLIST = {
     "ETF": [
         "sh510310",  # 沪深300指数
         "sh510100",  # 上证50指数
-        "sh510880",  # 上证红利指数
+        "sh512890",  # 红利低波指数
         "sh512800",  # 中证银行指数
         "sh518880",  # 黄金现货指数
         "sh516130",  # 消费龙头指数
@@ -16,7 +16,6 @@ WATCHLIST = {
         "sh588080",  # 科创50指数
         "sh513010",  # 恒生科技指数
         "sh511010",  # 国债ETF指数
-        "sh511020",  # 活跃国债ETF指数
         "sh511260",  # 10年国债ETF指数
     ],
 
@@ -24,18 +23,16 @@ WATCHLIST = {
         "sh600519",  # 贵州茅台
         "sz002594",  # 比亚迪
         "sz000333",  # 美的集团
-        "sh603195",  # 公牛集团
     ],
 
     "US_ETF": [
-        "SPY",  # SPDR S&P 500 ETF
-        "QQQ",  # Invesco QQQ Trust
-        "SMH",  # VanEck Semiconductor ETF；Stooq 可下载的半导体风险代理
+        "SPY",  # 标普500 ETF
+        "QQQ",  # 纳斯达克QQQ
+        "SMH",  # VanEck半导体ETF
     ],
 
     "US_INDEX": [
-        "NDQ",  # Nasdaq Composite；Stooq 页面符号为 ^ndq
-        # Stooq 当前对 ^sox 返回空数据；如未来恢复覆盖，可在这里加入 "^sox"。
+        "NDQ",  # Nasdaq Composite
     ],
 
     "US_MARKET_INDICATOR": [

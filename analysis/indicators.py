@@ -12,7 +12,7 @@ import numpy as np
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection, initialize_database
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
-from data_fetch.fetch_us_market import build_stooq_internal_symbol
+from data_fetch.fetch_us_market import build_us_index_symbol
 
 
 SKIP_INDICATOR_SYMBOLS = {
@@ -64,10 +64,10 @@ def get_all_symbols():
     # df["symbol"] 是一列 Series；tolist() 转成普通 Python 列表。
     symbols = set(df["symbol"].tolist())
 
-    # Stooq 指数（例如 WATCHLIST["US_INDEX"] 中的 NDQ）也需要计算技术指标。
+    # 美国指数（例如 WATCHLIST["US_INDEX"] 中的 NDQ）也需要计算技术指标。
     # 如果价格还没入库，后续 calculate_indicators 会清楚打印“没有价格数据，跳过”。
     symbols.update(
-        build_stooq_internal_symbol(symbol)
+        build_us_index_symbol(symbol)
         for symbol in WATCHLIST.get("US_INDEX", [])
     )
 
@@ -260,6 +260,29 @@ def calculate_indicator_frame(df):
     return indicator_df
 
 
+def calculate_market_indicator_frame(df):
+    """只计算均线，用于 VIX/VXN/VVIX/SKEW 等市场风险指标。"""
+
+    if df.empty:
+        return None
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
+
+    df["MA20"] = df["close"].rolling(window=20).mean()
+    df["MA60"] = df["close"].rolling(window=60).mean()
+
+    for column in INDICATOR_COLUMNS:
+        if column not in df.columns:
+            df[column] = None
+
+    indicator_df = df[INDICATOR_COLUMNS].copy()
+    indicator_df["date"] = indicator_df["date"].dt.strftime("%Y-%m-%d")
+
+    return indicator_df
+
+
 def calculate_indicators(symbol):
 
     print(f"开始计算 {symbol} 日线指标...")
@@ -274,6 +297,24 @@ def calculate_indicators(symbol):
     indicator_df = calculate_indicator_frame(df)
 
     print(f"{symbol} 日线指标计算完成")
+
+    return indicator_df
+
+
+def calculate_market_indicator_ma20(symbol):
+    """为 Cboe 市场风险指标只计算日线均线。"""
+
+    print(f"开始计算 {symbol} 日线均线...")
+
+    df = load_price_data(symbol)
+
+    if df.empty:
+        print(f"{symbol} 没有价格数据，跳过")
+        return None
+
+    indicator_df = calculate_market_indicator_frame(df)
+
+    print(f"{symbol} 日线均线计算完成")
 
     return indicator_df
 
@@ -433,7 +474,16 @@ def run_daily_indicator_analysis(symbols):
     for symbol in symbols:
 
         if symbol in SKIP_INDICATOR_SYMBOLS:
-            print(f"{symbol} 是市场风险指标，跳过技术指标计算")
+            try:
+
+                indicator_df = calculate_market_indicator_ma20(symbol)
+
+                save_indicators(indicator_df)
+
+            except Exception as e:
+                # 单个 symbol 出错不影响其他 symbol 继续计算。
+                print(f"{symbol} 均线计算失败: {e}")
+
             continue
 
         try:

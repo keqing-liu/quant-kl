@@ -7,7 +7,15 @@
 
 import pandas as pd
 
+from config.watchlist import WATCHLIST
 from database.db_utils import get_connection
+from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+
+
+SKIP_SIGNAL_SYMBOLS = {
+    build_cboe_index_internal_symbol(symbol)
+    for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
+}
 
 
 # =========================
@@ -30,7 +38,11 @@ def get_all_symbols():
     conn.close()
 
     # 转成普通 Python list。
-    return df["symbol"].tolist()
+    return [
+        symbol
+        for symbol in df["symbol"].tolist()
+        if symbol not in SKIP_SIGNAL_SYMBOLS
+    ]
 
 
 # =========================
@@ -136,11 +148,6 @@ def check_signal(symbol):
     # 1.01：
     # 给一个 1% 容忍区间。
     if latest["close"] <= latest["BOLL_LOWER"] * 1.01:
-        score += 1
-
-    # MA20 > MA60：
-    # 短期趋势强于中期趋势。
-    if latest["MA20"] > latest["MA60"]:
         score += 1
 
     # =========================

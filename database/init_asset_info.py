@@ -237,16 +237,16 @@ ASSETS = [
     # 美国指数
     # =========================
     {
-        "symbol": "stooq_ndq",
+        "symbol": "nasdaq",
         "name": "Nasdaq Composite",
         "asset_type": "US_INDEX",
         "asset_class": "EQUITY",
         "market": "US",
-        "data_source": "stooq",
-        "benchmark_symbol": "stooq_ndq",
+        "data_source": "fmp_twelvedata",
+        "benchmark_symbol": "nasdaq",
         "benchmark_name": "Nasdaq Composite",
         "is_active": 1,
-        "note": "Stooq 符号 ^ndq，配置中写作 NDQ",
+        "note": "配置中写作 NDQ，内部 symbol 为 nasdaq",
     },
 
     # =========================

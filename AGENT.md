@@ -85,8 +85,10 @@ Do not store daily valuation data as a financial table. Financial data should re
 
 US market data policy:
 
-- US stock and ETF prices use Stooq CSV.
-- Stooq CSV requires `STOOQ_API_KEY` in the environment. Without it, US price downloads should fail with a clear message instead of being treated as valid empty data.
+- US stock, ETF, and US index prices use FMP Basic as the primary source and Twelve Data as fallback.
+- FMP requires `FMP_API_KEY` in the environment. Without it, FMP should fail clearly and then Twelve Data fallback may be attempted.
+- Twelve Data requires `TWELVE_DATA_API_KEY` in the environment. Do not automatically call Stooq as the US market fallback; Stooq may still exist for explicit legacy/manual use.
+- When FMP returns `adjClose`, adjust OHLC by `adjClose / close` before writing to `price_data`.
 - Internal US symbols use `us_` prefix, e.g. `AAPL` becomes `us_aapl`, `BRK-B` becomes `us_brk_b`.
 - US stocks and US ETFs are price-only for now.
 - Do not download US company financial data unless the user explicitly asks to re-enable it. `data_fetch.update_us_financial_data` is currently a disabled placeholder.

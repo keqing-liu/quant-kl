@@ -21,3 +21,6 @@ private_trading_journal/
 # Logs
 logs/
 *.log
+
+# Generated reports
+reports/

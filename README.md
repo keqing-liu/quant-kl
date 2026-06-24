@@ -11,15 +11,16 @@
 | 任务 | 命令 |
 | --- | --- |
 | 更新行情并计算技术指标 | `python -m quant e update` |
-| 查看中美 ETF 摘要 | `python -m quant e summary --days 5` |
+| 查看中美 ETF、个股和美国指数摘要 | `python -m quant e summary --days 5` |
 | 只看中国 ETF 摘要 | `python -m quant e cn --days 5` |
 | 只看美国 ETF 摘要 | `python -m quant e us --days 5` |
 | 查看美国风险观察组合 | `python -m quant e risk --days 5` |
 | 短期技术指标打分 | `python -m quant e score` |
 | 趋势 / 波动率打分示例 | `python -m quant e trend` |
 | 聚合周线并计算周线指标 | `python -m quant e weekly` |
-| 查看中美 ETF 周线摘要 | `python -m quant e weekly-summary --days 5` |
-| 补全单个 Stooq 标的历史行情 | `python -m quant e backfill NDQ` |
+| 查看中美 ETF、个股和美国指数周线摘要 | `python -m quant e weekly-summary --days 5` |
+| 补全单个美国股票 / ETF / 指数历史行情 | `python -m quant e backfill NDQ` |
+| 生成每日交易研究日报 | `python -m quant report daily` |
 
 也可以给当前 shell 加一个别名，让命令更短：
 
@@ -35,6 +36,36 @@ q e summary
 q e risk
 q e weekly
 q e weekly-summary
+q report daily
+```
+
+日报默认读取本地 SQLite 数据库，不重新下载行情，生成到
+`reports/daily/YYYY-MM-DD.md`。可以用 `--date` 指定日报日期，用
+`--output-dir` 指定输出目录。
+
+## A 股财务数据短命令
+
+下载一只 A 股从指定会计年度开始的财务指标和三大报表，并写入 SQLite：
+
+```bash
+python -m quant f download sh600519 --start-year 2022
+```
+
+股票代码也可以写成 `sz000001` 或不带市场前缀的六位代码。默认下载
+`indicators,statements` 两个数据集，分别 upsert 到
+`financial_indicators` 和 `financial_statement_items`。
+
+可以只选择其中一个数据集，或在本地已是最新时强制刷新已有记录：
+
+```bash
+python -m quant f download 600519 --start-year 2022 --datasets indicators
+python -m quant fundamental download sh600519 --start-year 2022 --force-refresh
+```
+
+`--start-year` 只限制本次下载和写入的数据范围，不会删除数据库中该股票更早的历史记录。原始模块命令仍然可用：
+
+```bash
+python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 ```
 
 ## 功能概览
@@ -43,7 +74,7 @@ q e weekly-summary
 - 使用 SQLite (`database/quant.db`) 本地存储行情、技术指标、资产信息和数据更新日志
 - 支持按 `config/watchlist.py` 批量更新关注标的
 - 支持同步沪深 A 股股票池，并按股票池批量下载 A 股财务指标和三大报表
-- 支持 watchlist 中的美国股票和 ETF：当前只下载行情，用 Stooq CSV
+- 支持 watchlist 中的美国股票、ETF 和指数：当前只下载行情，优先使用 FMP Basic，失败时使用 Twelve Data
 - 支持用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标
 - 支持基于新浪财报数据计算自由现金流、ROIC、净负债率等巴菲特式基本面指标
 - 支持基于年报 ROE、负债率、净利润增长率等指标做基本面筛选
@@ -147,7 +178,7 @@ quant-kl/
 | `fetch_cboe_market.py` | 使用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标，并整理成 `price_data` 兼容字段。 |
 | `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
 | `fetch_financial.py` | 使用 AkShare 下载并整理单只 A 股财务指标和三大报表。三大报表使用新浪端口，不使用东方财富端口。 |
-| `fetch_us_market.py` | 使用 Stooq CSV 下载美国股票和 ETF 历史行情，并整理成 `price_data` 兼容字段。 |
+| `fetch_us_market.py` | 使用 FMP Basic / Twelve Data 下载美国股票、ETF 和指数历史行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_stock.py` | 使用 `akshare.stock_zh_a_daily` 下载单只 A 股前复权日线行情。 |
 | `update_financial_data.py` | 从 `stock_universe` 读取股票池，批量下载财务指标和三大报表，并写入 SQLite。 |
 | `update_us_financial_data.py` | 美国公司财务下载占位脚本。当前策略是美股和 ETF 只下载行情，因此该脚本运行后会直接退出。 |
@@ -357,17 +388,33 @@ python -m data_fetch.update_financial_data --symbol sh600519
 
 ### 美国股票、ETF 和市场风险指标数据
 
-美国行情数据来自 Stooq，watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Stooq 下载符号会自动转换为 `aapl.us`、`spy.us`、`brk-b.us` 这种格式。
+美国股票、ETF 和美国指数行情优先来自 FMP Basic，Twelve Data 作为备用源。watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Nasdaq Composite 仍可在配置中写成 `NDQ`，入库为 `nasdaq`，下载时会优先映射到 FMP 指数符号，并在备用源中映射到 Twelve Data 指数符号。
 
-Stooq CSV 直链偶尔不稳定，当前更新逻辑不再使用 CSV 直链，而是直接读取历史数据页：
+FMP 和 Twelve Data 下载需要设置环境变量。这里的中文只是占位符，实际使用时要替换成你账户后台复制出来的真实 key：
 
-```text
-https://stooq.com/q/d/?s=aapl.us&i=d
+```bash
+export FMP_API_KEY="你的FMP key"
+export TWELVE_DATA_API_KEY="你的Twelve Data key"
 ```
 
-该页面每页显示最近约 40 个交易日的数据。已有标的日常增量更新只读取第一页；如果是数据库里还没有记录的新 Stooq 标的，会自动按 `l=2`、`l=3` 这样的分页链接继续向后下载，默认最多下载前 10 页，约 400 个交易日，足够计算 MA、KDJ、CCI、布林带和 252 日波动率。项目里可以把 Nasdaq Composite 写成友好名称 `NDQ`，下载时会自动映射到 Stooq 页面符号 `^ndq`。
+如需每次打开终端都自动生效，可以写入 `~/.zshrc`：
 
-如果要给单个 Stooq 标的补全全部可见历史，不想跑完整 watchlist，可以使用 `backfill`。它只补缺失日期，不覆盖已有同日记录；完成后会自动重新计算日线指标：
+```bash
+echo 'export FMP_API_KEY="你的FMP key"' >> ~/.zshrc
+echo 'export TWELVE_DATA_API_KEY="你的Twelve Data key"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+可以用下面的命令检查当前终端是否已经读到 key：
+
+```bash
+echo $FMP_API_KEY
+echo $TWELVE_DATA_API_KEY
+```
+
+FMP 返回 `adjClose` 时，项目会用 `adjClose / close` 对 `open`、`high`、`low`、`close` 做同比例前复权，写入 `price_data` 的 `close` 为复权后的收盘价。Twelve Data 备用源当前按其 time series 返回的 OHLC 写入。已有标的日常增量更新会从数据库最新日期的下一天下载到今天；如果数据库里还没有记录，会按 FMP Basic 免费历史范围默认下载最近约 5 年。
+
+如果要给单个美国股票、ETF 或美国指数补历史，不想跑完整 watchlist，可以继续使用原来的 `backfill` 命令。它只补缺失日期，不覆盖已有同日记录；完成后会自动重新计算日线指标：
 
 ```bash
 python -m quant e backfill NDQ
@@ -375,28 +422,25 @@ python -m quant e backfill QQQ
 python -m quant e backfill AAPL
 ```
 
-调试命令链路时可以限制页数，例如只下载前 2 页：
+如果只想补最近几天，可以显式指定日期区间。FMP 和 Twelve Data 都会使用这个区间：
 
 ```bash
-python -m quant e backfill NDQ --max-pages 2
+python -m quant e backfill QQQ --start-date 2026-06-13 --end-date 2026-06-16
+python -m quant e backfill BRK-B --start-date 2026-06-13 --end-date 2026-06-16
 ```
 
-旧版 apikey 环境变量仍兼容；如果未来 Stooq 恢复 CSV 端点，可以继续设置：
+如果 FMP 下载失败，程序会尝试 Twelve Data 备用源，不再自动请求 Stooq，避免再次触发 Stooq 人工验证码。
 
-```bash
-export STOOQ_API_KEY="你的StooqKey"
-```
+常见失败排查：
 
-如需每次打开终端都自动生效，可以写入 `~/.zshrc`：
+| 现象 | 常见原因 | 处理 |
+| --- | --- | --- |
+| `缺少 FMP_API_KEY` | 当前终端没有读到 FMP key | 重新执行 `source ~/.zshrc`，或检查 `echo $FMP_API_KEY` |
+| `缺少 TWELVE_DATA_API_KEY` | 当前终端没有读到 Twelve Data key | 重新执行 `source ~/.zshrc`，或检查 `echo $TWELVE_DATA_API_KEY` |
+| `HTTP Error 402: Payment Required` | FMP Basic 对该 symbol、接口或日期范围没有权限 | 程序会自动尝试 Twelve Data；也可以用 `--start-date/--end-date` 缩小范围 |
+| Twelve Data 返回额度或权限错误 | 免费额度用完，或该 symbol 不支持 | 稍后重试，或登录 Twelve Data 后台检查额度 |
 
-```bash
-echo 'export STOOQ_API_KEY="你的StooqKey"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-注意：Stooq 的 `Close` 会直接写入 `price_data.close`。这和旧版 `yfinance auto_adjust=True` 的复权价格口径可能不完全一致；如果未来要做严格跨源回测，需要单独校验复权口径。
-
-VIX / VXN / VVIX / SKEW 不走 Stooq，而是使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`、`^vvix`、`^skew`，入库时会转换为内部 symbol：
+VIX / VXN / VVIX / SKEW 使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`、`^vvix`、`^skew`，入库时会转换为内部 symbol：
 
 | watchlist 代码 | 入库 symbol | 数据源 |
 | --- | --- | --- |
@@ -664,6 +708,7 @@ WATCHLIST = {
 
 - 中国 ETF / 股票保持 watchlist 里的原始 symbol，例如 `sh510310`。
 - 美国 ETF / 股票会转成 `us_` 前缀，例如 `QQQ` 入库为 `us_qqq`，`BRK-B` 入库为 `us_brk_b`。
+- 美国指数会转成对应指数名，例如 `NDQ` / Nasdaq Composite 入库为 `nasdaq`。
 - Cboe 市场风险指标会转成 `cboe_` 前缀，例如 `^vix` 入库为 `cboe_vix`。
 
 ## 数据流

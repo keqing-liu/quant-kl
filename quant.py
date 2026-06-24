@@ -15,6 +15,8 @@ import runpy
 
 # 默认展示最近 5 个交易日；所有带 --days 的命令都会使用这个默认值。
 DEFAULT_DAYS = 5
+DEFAULT_FINANCIAL_DATASETS = ("indicators", "statements")
+FINANCIAL_DATASET_CHOICES = set(DEFAULT_FINANCIAL_DATASETS)
 
 
 def run_daily_update(_args):
@@ -27,7 +29,7 @@ def run_daily_update(_args):
 
 
 def run_etf_summary(args):
-    """Show both China ETF and US ETF summaries."""
+    """Show China/US ETF, stock, and US index summaries."""
 
     # 这里放在函数内部 import，是为了让 `python -m quant --help` 更快更干净：
     # 只是看帮助时，不需要提前加载 pandas / 数据库相关模块。
@@ -37,13 +39,25 @@ def run_etf_summary(args):
     print("=" * 120)
     run_summary(group="cn-etf", days=args.days)
 
+    print("\n中国个股摘要")
+    print("=" * 120)
+    run_summary(group="cn-stock", days=args.days)
+
     print("\n美国 ETF 摘要")
     print("=" * 120)
     run_summary(group="us-etf", days=args.days)
 
+    print("\n美国个股摘要")
+    print("=" * 120)
+    run_summary(group="us-stock", days=args.days)
+
+    print("\n美国指数摘要")
+    print("=" * 120)
+    run_summary(group="us-index", days=args.days)
+
 
 def run_etf_weekly_summary(args):
-    """Show both China ETF and US ETF weekly summaries."""
+    """Show China/US ETF, stock, and US index weekly summaries."""
 
     from analysis.summary import run_summary
 
@@ -51,9 +65,21 @@ def run_etf_weekly_summary(args):
     print("=" * 120)
     run_summary(group="cn-etf", days=args.days, frequency="weekly")
 
+    print("\n中国个股周线摘要")
+    print("=" * 120)
+    run_summary(group="cn-stock", days=args.days, frequency="weekly")
+
     print("\n美国 ETF 周线摘要")
     print("=" * 120)
     run_summary(group="us-etf", days=args.days, frequency="weekly")
+
+    print("\n美国个股周线摘要")
+    print("=" * 120)
+    run_summary(group="us-stock", days=args.days, frequency="weekly")
+
+    print("\n美国指数周线摘要")
+    print("=" * 120)
+    run_summary(group="us-index", days=args.days, frequency="weekly")
 
 
 def run_group_summary(group):
@@ -95,7 +121,7 @@ def run_weekly_indicators(_args):
 
 
 def run_backfill(args):
-    """Backfill one Stooq stock/ETF/index symbol."""
+    """Backfill one US stock/ETF/index symbol."""
 
     from data_manager.data_manager import DataManager
     from database.db_utils import initialize_database
@@ -103,7 +129,61 @@ def run_backfill(args):
     initialize_database()
 
     manager = DataManager()
-    manager.backfill_stooq_symbol(args.symbol, max_pages=args.max_pages)
+    # CLI 只负责收集参数；真正决定下载源和日期窗口的是 DataManager。
+    manager.backfill_stooq_symbol(
+        args.symbol,
+        max_pages=args.max_pages,
+        start_date=args.start_date,
+        end_date=args.end_date,
+    )
+
+
+def run_financial_download(args):
+    """Download one A-share company's financial data into SQLite."""
+
+    # 延迟导入，避免查看 quant 帮助时提前加载数据库和财务下载模块。
+    from data_fetch.update_financial_data import update_financial_indicators
+
+    update_financial_indicators(
+        symbols=[args.symbol],
+        start_year=args.start_year,
+        sleep_seconds=args.sleep,
+        retries=args.retries,
+        force_refresh=args.force_refresh,
+        datasets=args.datasets,
+    )
+
+
+def run_daily_report(args):
+    """Generate a Markdown daily research report from local SQLite data."""
+
+    from analysis.daily_report import write_daily_report
+
+    output_path = write_daily_report(
+        report_date=args.date,
+        output_dir=args.output_dir,
+        days=args.days,
+    )
+
+    print(f"日报已生成: {output_path}")
+
+
+def parse_financial_datasets(value):
+    """Parse and validate a comma-separated financial dataset list."""
+
+    datasets = tuple(item.strip() for item in value.split(",") if item.strip())
+    invalid = [item for item in datasets if item not in FINANCIAL_DATASET_CHOICES]
+
+    if not datasets:
+        raise argparse.ArgumentTypeError("至少选择一个财务数据集")
+
+    if invalid:
+        valid = ", ".join(DEFAULT_FINANCIAL_DATASETS)
+        raise argparse.ArgumentTypeError(
+            f"未知财务数据集 {invalid[0]}; 可选值: {valid}"
+        )
+
+    return datasets
 
 
 def add_days_argument(parser):
@@ -153,14 +233,14 @@ def build_parser():
 
     summary_parser = etf_subparsers.add_parser(
         "summary",
-        help="输出中国 ETF 和美国 ETF 摘要",
+        help="输出中美 ETF、个股和美国指数摘要",
     )
     add_days_argument(summary_parser)
     summary_parser.set_defaults(func=run_etf_summary)
 
     weekly_summary_parser = etf_subparsers.add_parser(
         "weekly-summary",
-        help="输出中国 ETF 和美国 ETF 周线摘要",
+        help="输出中美 ETF、个股和美国指数周线摘要",
     )
     add_days_argument(weekly_summary_parser)
     weekly_summary_parser.set_defaults(func=run_etf_weekly_summary)
@@ -206,19 +286,106 @@ def build_parser():
 
     backfill_parser = etf_subparsers.add_parser(
         "backfill",
-        help="只补一个 Stooq 股票/ETF/指数的历史行情",
+        help="只补一个美国股票/ETF/指数的历史行情",
     )
     backfill_parser.add_argument(
         "symbol",
-        help="Stooq 标的，例如 NDQ、^ndq、QQQ、AAPL、SPY、BRK-B",
+        help="美国标的，例如 NDQ、^ndq、QQQ、AAPL、SPY、BRK-B",
     )
     backfill_parser.add_argument(
         "--max-pages",
         type=int,
         default=None,
-        help="最多下载多少页；默认不限制，下载 Stooq 可见全部分页",
+        help="旧版 Stooq 分页兼容参数；当前 FMP/Twelve Data 下载不使用",
+    )
+    backfill_parser.add_argument(
+        "--start-date",
+        default=None,
+        # 日期参数会一路传给 FMP/Twelve Data，用来只补一个小区间。
+        help="FMP/Twelve Data 下载起始日期，例如 2026-06-13；默认最近约 5 年",
+    )
+    backfill_parser.add_argument(
+        "--end-date",
+        default=None,
+        help="FMP/Twelve Data 下载结束日期，例如 2026-06-16；默认今天",
     )
     backfill_parser.set_defaults(func=run_backfill)
+
+    fundamental_parser = subparsers.add_parser(
+        "f",
+        aliases=["fundamental"],
+        help="A 股基本面数据命令",
+    )
+    fundamental_subparsers = fundamental_parser.add_subparsers(
+        dest="fundamental_command"
+    )
+
+    financial_download_parser = fundamental_subparsers.add_parser(
+        "download",
+        help="下载一只 A 股从指定年份开始的财务数据并写入 SQLite",
+    )
+    financial_download_parser.add_argument(
+        "symbol",
+        help="A 股代码，例如 sh600519、sz000001 或 600519",
+    )
+    financial_download_parser.add_argument(
+        "--start-year",
+        type=int,
+        required=True,
+        help="下载和保留数据的起始会计年度，例如 2022",
+    )
+    financial_download_parser.add_argument(
+        "--datasets",
+        type=parse_financial_datasets,
+        default=DEFAULT_FINANCIAL_DATASETS,
+        help="数据集，逗号分隔；可选 indicators,statements；默认全部",
+    )
+    financial_download_parser.add_argument(
+        "--sleep",
+        type=float,
+        default=8,
+        help="失败重试前等待秒数；默认 8 秒",
+    )
+    financial_download_parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="下载失败后的重试次数；默认 2 次",
+    )
+    financial_download_parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="本地已是最新时也重新写入接口返回的已有记录",
+    )
+    financial_download_parser.set_defaults(func=run_financial_download)
+
+    report_parser = subparsers.add_parser(
+        "report",
+        help="研究报告生成命令",
+    )
+    report_subparsers = report_parser.add_subparsers(dest="report_command")
+
+    daily_report_parser = report_subparsers.add_parser(
+        "daily",
+        help="生成每日交易研究 Markdown 日报",
+    )
+    daily_report_parser.add_argument(
+        "--date",
+        default=None,
+        help="日报日期，默认今天，例如 2026-06-23",
+    )
+    daily_report_parser.add_argument(
+        "--days",
+        type=int,
+        default=DEFAULT_DAYS,
+        help=f"摘要读取最近几个交易日/周线；默认 {DEFAULT_DAYS}",
+    )
+    daily_report_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="日报输出目录；默认 reports/daily",
+    )
+    daily_report_parser.set_defaults(func=run_daily_report)
 
     return parser
 
