@@ -16,7 +16,7 @@ import pandas as pd
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
-from data_fetch.fetch_alpha_vantage_ca import build_ca_stock_symbol
+from data_fetch.fetch_eodhd_ca import build_ca_stock_symbol
 from data_fetch.fetch_fred_treasury import (
     FRED_TREASURY_SPREAD_SYMBOL,
     build_fred_treasury_internal_symbol,
@@ -401,12 +401,14 @@ def parse_args():
         "--group",
         choices=[
             "all",
+            "ca-stock",
             "cn-etf",
             "cn-stock",
             "us-etf",
             "us-stock",
             "us-index",
             "us-market-indicator",
+            "us-treasury-yield",
             "us-risk",
         ],
         default="all",

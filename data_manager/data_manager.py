@@ -17,9 +17,10 @@ from data_fetch.fetch_cboe_market import (
     build_cboe_index_internal_symbol,
     download_cboe_index_data,
 )
-from data_fetch.fetch_alpha_vantage_ca import (
+from data_fetch.fetch_eodhd_ca import (
     build_ca_stock_symbol,
-    download_alpha_vantage_ca_stock_data,
+    download_eodhd_ca_stock_data,
+    get_eodhd_default_start_date,
 )
 from data_fetch.fetch_etf import download_etf_data
 from data_fetch.fetch_fred_treasury import (
@@ -51,12 +52,8 @@ class DataManager:
     它不应该关心外部接口的解析细节，也尽量不直接写 SQL。
     """
 
-    def _is_us_today_no_new_data_error(self, error, latest_date_before, download_kwargs):
-        """判断美股日常重复更新时的“今天暂无新日线”情况。
-
-        这是 service 层的业务规则：同样的接口错误，在日常重复更新场景
-        可以被解释为 no_new_data，而不是 failed。
-        """
+    def _is_short_daily_increment_window(self, latest_date_before, download_kwargs):
+        """判断本次是否只是从数据库最新日期后一天开始的小窗口日常更新。"""
 
         if latest_date_before is None:
             return False
@@ -65,18 +62,82 @@ class DataManager:
         end_date = download_kwargs.get("end_date")
         today = date.today().strftime("%Y-%m-%d")
 
-        if start_date != today or end_date != today:
+        if end_date != today:
+            return False
+
+        expected_start_date = (
+            pd.to_datetime(latest_date_before) + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        if start_date != expected_start_date:
+            return False
+
+        request_days = (
+            pd.to_datetime(end_date) - pd.to_datetime(start_date)
+        ).days + 1
+
+        return request_days <= 7
+
+    def _log_no_new_data(self, symbol, asset_type, latest_date_before, download_kwargs, data_source, message):
+        """记录并输出无新增数据状态。"""
+
+        log_price_update(
+            symbol=symbol,
+            asset_type=asset_type,
+            latest_date_before=latest_date_before,
+            start_date=download_kwargs.get("start_date"),
+            end_date=download_kwargs.get("end_date"),
+            rows_downloaded=0,
+            rows_inserted=0,
+            status="no_new_data",
+            message=message,
+            data_source=data_source,
+        )
+
+        print(f"{symbol} 无新增数据：{message}")
+
+    def _is_us_today_no_new_data_error(self, error, latest_date_before, download_kwargs):
+        """判断美股日常重复更新时的“今天暂无新日线”情况。"""
+
+        if not self._is_short_daily_increment_window(
+            latest_date_before,
+            download_kwargs,
+        ):
+            return False
+
+        message = str(error)
+        twelve_looks_empty = (
+            "Twelve Data 返回空数据" in message
+            or "HTTP Error 400: Bad Request" in message
+        )
+        fmp_looks_empty_or_unavailable = (
+            "FMP 返回空数据" in message
+            or "HTTP Error 402: Payment Required" in message
+            or "FMP 返回错误" in message
+        )
+
+        return (
+            "FMP 下载失败" in message
+            and "Twelve Data 备用源也失败" in message
+            and fmp_looks_empty_or_unavailable
+            and twelve_looks_empty
+        )
+
+    def _is_eodhd_no_new_data_error(self, error, latest_date_before, download_kwargs):
+        """判断 EODHD 日常增量窗口里的无新增/临时不可用情况。"""
+
+        if not self._is_short_daily_increment_window(
+            latest_date_before,
+            download_kwargs,
+        ):
             return False
 
         message = str(error)
 
         return (
-            "FMP 下载失败" in message
-            and "FMP 返回空数据" in message
-            and (
-                "Twelve Data 返回空数据" in message
-                or "HTTP Error 400: Bad Request" in message
-            )
+            "timed out" in message.lower()
+            or "HTTP Error 502: Bad Gateway" in message
+            or "HTTP Error 504: Gateway Timeout" in message
+            or "EODHD 返回错误" in message
         )
 
     def _update_price_data(
@@ -138,6 +199,23 @@ class DataManager:
 
             # 如果下载函数返回 None 或空 DataFrame，也要写日志。
             if df is None or df.empty:
+                if (
+                    data_source == "eodhd"
+                    and self._is_short_daily_increment_window(
+                        latest_date_before,
+                        download_kwargs,
+                    )
+                ):
+                    self._log_no_new_data(
+                        symbol=symbol,
+                        asset_type=asset_type,
+                        latest_date_before=latest_date_before,
+                        download_kwargs=download_kwargs,
+                        data_source=data_source,
+                        message="当前日常增量窗口暂无新的多伦多日线数据",
+                    )
+                    return
+
                 # Repository 职责：把本次更新结果写入 data_update_log。
                 log_price_update(
                     symbol=symbol,
@@ -191,7 +269,7 @@ class DataManager:
                     data_source=data_source,
                 )
 
-                print(f"{symbol} 无需更新")
+                print(f"{symbol} 无新增数据")
                 return
 
             # =========================
@@ -267,21 +345,32 @@ class DataManager:
                     download_kwargs,
                 )
             ):
-                # Repository 职责：记录已识别的 no_new_data 日志。
-                log_price_update(
+                self._log_no_new_data(
                     symbol=symbol,
                     asset_type=asset_type,
                     latest_date_before=latest_date_before,
-                    start_date=download_kwargs.get("start_date"),
-                    end_date=download_kwargs.get("end_date"),
-                    rows_downloaded=0,
-                    rows_inserted=0,
-                    status="no_new_data",
-                    message="今天暂无新的美股日线数据，无需更新",
+                    download_kwargs=download_kwargs,
                     data_source=data_source,
+                    message="当前日常增量窗口暂无新的美股日线数据",
                 )
+                return
 
-                print(f"{symbol} 无需更新：今天暂无新的美股日线数据")
+            if (
+                data_source == "eodhd"
+                and self._is_eodhd_no_new_data_error(
+                    e,
+                    latest_date_before,
+                    download_kwargs,
+                )
+            ):
+                self._log_no_new_data(
+                    symbol=symbol,
+                    asset_type=asset_type,
+                    latest_date_before=latest_date_before,
+                    download_kwargs=download_kwargs,
+                    data_source=data_source,
+                    message="当前日常增量窗口暂无新的多伦多日线数据，或 EODHD 临时不可用",
+                )
                 return
 
             # Repository 职责：记录失败日志。
@@ -348,6 +437,23 @@ class DataManager:
             "end_date": date.today().strftime("%Y-%m-%d"),
         }
 
+    def _get_eodhd_download_kwargs(self, symbol):
+        """计算 EODHD 日常下载窗口。"""
+
+        latest_date_before = get_latest_price_date(symbol)
+        if latest_date_before is None:
+            resolved_start_date = get_eodhd_default_start_date()
+        else:
+            resolved_start_date = (
+                pd.to_datetime(latest_date_before) + timedelta(days=1)
+            ).strftime("%Y-%m-%d")
+
+        return {
+            "start_date": resolved_start_date,
+            "end_date": date.today().strftime("%Y-%m-%d"),
+            "adjust_prices": True,
+        }
+
     def update_etf(self, symbol):
         """服务入口：更新单只中国 ETF。"""
 
@@ -374,9 +480,10 @@ class DataManager:
         symbol = build_ca_stock_symbol(ticker)
         self._update_price_data(
             symbol=symbol,
-            download_func=download_alpha_vantage_ca_stock_data,
+            download_func=download_eodhd_ca_stock_data,
             asset_type="CA_STOCK",
-            data_source="alpha_vantage",
+            data_source="eodhd",
+            download_kwargs=self._get_eodhd_download_kwargs(symbol),
         )
 
     def update_us_stock(self, ticker):

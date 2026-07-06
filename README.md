@@ -75,7 +75,7 @@ python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 - 支持按 `config/watchlist.py` 批量更新关注标的
 - 支持同步沪深 A 股股票池，并按股票池批量下载 A 股财务指标和三大报表
 - 支持 watchlist 中的美国股票、ETF 和指数：当前只下载行情，优先使用 FMP Basic，失败时使用 Twelve Data
-- 支持 watchlist 中的加拿大多伦多股票：使用 Alpha Vantage 下载日线行情，例如 `RY.TRT` / `TD.TRT`
+- 支持 watchlist 中的加拿大银行相关股票：使用 EODHD 下载多伦多交易所日线行情，例如 `RY.TO` / `TD.TO`
 - 支持用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标
 - 支持用 FRED 下载 10Y / 2Y 美债收益率，并在本地计算 10Y-2Y 利差
 - 支持基于新浪财报数据计算自由现金流、ROIC、净负债率等巴菲特式基本面指标
@@ -121,7 +121,7 @@ quant-kl/
 │   └── *.csv
 ├── data_fetch/
 │   ├── __init__.py
-│   ├── fetch_alpha_vantage_ca.py
+│   ├── fetch_eodhd_ca.py
 │   ├── fetch_etf.py
 │   ├── fetch_cboe_market.py
 │   ├── fetch_financial.py
@@ -186,7 +186,7 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `fetch_alpha_vantage_ca.py` | 使用 Alpha Vantage 下载加拿大多伦多股票日线行情，并整理成 `price_data` 兼容字段。 |
+| `fetch_eodhd_ca.py` | 使用 EODHD 下载多伦多交易所股票日线行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_cboe_market.py` | 使用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标，并整理成 `price_data` 兼容字段。 |
 | `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
 | `fetch_financial.py` | 使用 AkShare 下载并整理单只 A 股财务指标和三大报表。三大报表使用新浪端口，不使用东方财富端口。 |
@@ -413,7 +413,7 @@ python -m data_fetch.update_financial_data --symbol sh600519
 
 美国股票、ETF 和美国指数行情优先来自 FMP Basic，Twelve Data 作为备用源。watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Nasdaq Composite 仍可在配置中写成 `NDQ`，入库为 `nasdaq`，下载时会优先映射到 FMP 指数符号，并在备用源中映射到 Twelve Data 指数符号。
 
-加拿大多伦多股票来自 Alpha Vantage，使用其加拿大交易所后缀，例如 `RY.TRT` 入库为 `ca_ry_trt`，`TD.TRT` 入库为 `ca_td_trt`。Alpha Vantage 免费版 `TIME_SERIES_DAILY` 的 `compact` 模式返回最近 100 条日线；项目会把每天新增的数据继续累积到本地 SQLite，因此长期运行后历史会逐步增加。
+加拿大银行相关股票来自 EODHD，使用多伦多交易所 `.TO` 后缀 ticker，例如 `RY.TO` 入库为 `ca_ry_to`，`TD.TO` 入库为 `ca_td_to`。不要写裸代码 `RY` / `TD`，因为 EODHD 裸代码会返回美股上市价格；`.TO` 返回的是多伦多交易所的 CAD 价格。EODHD 免费层可能只返回最近约 1 年、约 250 个交易日的数据；后续日常更新会从数据库最新日期的下一天开始增量下载。
 
 FRED 美债收益率不需要 API key。项目会下载 `DGS10` 和 `DGS2`，并在本地按同日 close 生成 `fred_t10y2y`：
 
@@ -423,12 +423,12 @@ FRED 美债收益率不需要 API key。项目会下载 `DGS10` 和 `DGS2`，并
 | `DGS2` | `fred_dgs2` | 2Y 美债收益率 |
 | 本地计算 | `fred_t10y2y` | 10Y - 2Y 利差，数值 `-0.35` 表示 `-0.35 个百分点` |
 
-FMP、Twelve Data 和 Alpha Vantage 下载需要设置环境变量。这里的中文只是占位符，实际使用时要替换成你账户后台复制出来的真实 key：
+FMP、Twelve Data 和 EODHD 下载需要设置环境变量。这里的中文只是占位符，实际使用时要替换成你账户后台复制出来的真实 key：
 
 ```bash
 export FMP_API_KEY="你的FMP key"
 export TWELVE_DATA_API_KEY="你的Twelve Data key"
-export ALPHA_VANTAGE_API_KEY="你的Alpha Vantage key"
+export EODHD_API_KEY="你的EODHD key"
 ```
 
 如需每次打开终端都自动生效，可以写入 `~/.zshrc`：
@@ -436,7 +436,7 @@ export ALPHA_VANTAGE_API_KEY="你的Alpha Vantage key"
 ```bash
 echo 'export FMP_API_KEY="你的FMP key"' >> ~/.zshrc
 echo 'export TWELVE_DATA_API_KEY="你的Twelve Data key"' >> ~/.zshrc
-echo 'export ALPHA_VANTAGE_API_KEY="你的Alpha Vantage key"' >> ~/.zshrc
+echo 'export EODHD_API_KEY="你的EODHD key"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -445,10 +445,17 @@ source ~/.zshrc
 ```bash
 echo $FMP_API_KEY
 echo $TWELVE_DATA_API_KEY
-echo $ALPHA_VANTAGE_API_KEY
+echo $EODHD_API_KEY
 ```
 
-FMP 返回 `adjClose` 时，项目会用 `adjClose / close` 对 `open`、`high`、`low`、`close` 做同比例前复权，写入 `price_data` 的 `close` 为复权后的收盘价。Twelve Data 备用源当前按其 time series 返回的 OHLC 写入。Alpha Vantage 加拿大股票当前按其 daily OHLC 写入。已有标的日常增量更新会从数据库最新日期的下一天下载到今天；如果美国标的数据库里还没有记录，会按 FMP Basic 免费历史范围默认下载最近约 5 年。
+FMP 返回 `adjClose` 时，项目会用 `adjClose / close` 对 `open`、`high`、`low`、`close` 做同比例前复权，写入 `price_data` 的 `close` 为复权后的收盘价。Twelve Data 备用源当前按其 time series 返回的 OHLC 写入。EODHD 加拿大股票会用 `adjusted_close / close` 对 OHLC 做同比例复权。已有标的日常增量更新会从数据库最新日期的下一天下载到今天；如果美国或 EODHD 标的数据库里还没有记录，会默认请求最近约 5 年，但实际可返回历史长度取决于 API 免费层权限。
+
+日常增量更新时，如果数据库已经有最新交易日，而短日期窗口里暂无新的美股或多伦多日线，程序会把常见的空数据、节假日/周末、当天未收盘、EODHD 临时 `timeout` / `502` / `504` 识别为“无新增数据”，避免误报成端口或代码失败。例如：
+
+```text
+us_spy 无新增数据：当前日常增量窗口暂无新的美股日线数据
+ca_ry_to 无新增数据：当前日常增量窗口暂无新的多伦多日线数据，或 EODHD 临时不可用
+```
 
 如果要给单个美国股票、ETF 或美国指数补历史，不想跑完整 watchlist，可以继续使用原来的 `backfill` 命令。它只补缺失日期，不覆盖已有同日记录；完成后会自动重新计算日线指标：
 
@@ -473,10 +480,11 @@ python -m quant e backfill BRK-B --start-date 2026-06-13 --end-date 2026-06-16
 | --- | --- | --- |
 | `缺少 FMP_API_KEY` | 当前终端没有读到 FMP key | 重新执行 `source ~/.zshrc`，或检查 `echo $FMP_API_KEY` |
 | `缺少 TWELVE_DATA_API_KEY` | 当前终端没有读到 Twelve Data key | 重新执行 `source ~/.zshrc`，或检查 `echo $TWELVE_DATA_API_KEY` |
-| `缺少 ALPHA_VANTAGE_API_KEY` | 当前终端没有读到 Alpha Vantage key | 免费注册 key 后写入 `~/.zshrc`，再执行 `source ~/.zshrc` |
+| `缺少 EODHD_API_KEY` | 当前终端没有读到 EODHD key | 免费注册 key 后写入 `~/.zshrc`，再执行 `source ~/.zshrc` |
 | `HTTP Error 402: Payment Required` | FMP Basic 对该 symbol、接口或日期范围没有权限 | 程序会自动尝试 Twelve Data；也可以用 `--start-date/--end-date` 缩小范围 |
 | Twelve Data 返回额度或权限错误 | 免费额度用完，或该 symbol 不支持 | 稍后重试，或登录 Twelve Data 后台检查额度 |
-| Alpha Vantage 返回额度提示 | 免费版每日请求数用完 | 减少 `CA_STOCK` 数量，或等第二天额度恢复 |
+| EODHD 返回额度或权限错误 | 免费额度用完，或该 ticker 不支持 | 减少 `CA_STOCK` 数量，或登录 EODHD 后台检查额度 |
+| EODHD 短增量窗口 `timeout` / `502` / `504` | 暂无新多伦多日线，或 EODHD 临时不可用 | 程序会记录为 `no_new_data`；稍后或下个交易日再运行 update |
 
 VIX / VXN / VVIX / SKEW 使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`、`^vvix`、`^skew`，入库时会转换为内部 symbol：
 
@@ -737,8 +745,8 @@ WATCHLIST = {
         "sh600519",
     ],
     "CA_STOCK": [
-        "RY.TRT",
-        "TD.TRT",
+        "RY.TO",
+        "TD.TO",
     ],
     "US_ETF": [
         "QQQ",
@@ -770,7 +778,7 @@ WATCHLIST = {
 内部 symbol 命名规则：
 
 - 中国 ETF / 股票保持 watchlist 里的原始 symbol，例如 `sh510310`。
-- 加拿大股票会转成 `ca_` 前缀，例如 `RY.TRT` 入库为 `ca_ry_trt`，`TD.TRT` 入库为 `ca_td_trt`。
+- 加拿大股票会转成 `ca_` 前缀，例如 `RY.TO` 入库为 `ca_ry_to`，`TD.TO` 入库为 `ca_td_to`。
 - 美国 ETF / 股票会转成 `us_` 前缀，例如 `QQQ` 入库为 `us_qqq`，`BRK-B` 入库为 `us_brk_b`。
 - 美国指数会转成对应指数名，例如 `NDQ` / Nasdaq Composite 入库为 `nasdaq`。
 - Cboe 市场风险指标会转成 `cboe_` 前缀，例如 `^vix` 入库为 `cboe_vix`。
@@ -792,7 +800,7 @@ config/watchlist.py
         v
 data_fetch/fetch_etf.py / data_fetch/fetch_stock.py
 data_fetch/fetch_us_market.py / data_fetch/fetch_cboe_market.py
-data_fetch/fetch_alpha_vantage_ca.py / data_fetch/fetch_fred_treasury.py
+data_fetch/fetch_eodhd_ca.py / data_fetch/fetch_fred_treasury.py
         |
         v
 data_manager/data_manager.py

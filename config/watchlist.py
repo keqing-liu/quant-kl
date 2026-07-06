@@ -26,8 +26,8 @@ WATCHLIST = {
     ],
 
     "CA_STOCK": [
-        "RY.TRT",  # Royal Bank of Canada
-        "TD.TRT",  # Toronto-Dominion Bank
+        "RY.TO",  # Royal Bank of Canada，多伦多交易所
+        "TD.TO",  # Toronto-Dominion Bank，多伦多交易所
     ],
 
     "US_ETF": [
