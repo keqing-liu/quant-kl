@@ -16,6 +16,12 @@ import pandas as pd
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+from data_fetch.fetch_alpha_vantage_ca import build_ca_stock_symbol
+from data_fetch.fetch_fred_treasury import (
+    FRED_TREASURY_SPREAD_SYMBOL,
+    build_fred_treasury_internal_symbol,
+    get_fred_treasury_symbols,
+)
 from data_fetch.fetch_us_market import build_us_index_symbol, build_us_symbol
 
 
@@ -159,6 +165,12 @@ def build_group_symbols(group):
     if group == "cn-stock":
         return WATCHLIST.get("STOCK", [])
 
+    if group == "ca-stock":
+        return [
+            build_ca_stock_symbol(ticker)
+            for ticker in WATCHLIST.get("CA_STOCK", [])
+        ]
+
     if group == "us-etf":
         return [
             build_us_symbol(ticker)
@@ -182,6 +194,12 @@ def build_group_symbols(group):
             build_cboe_index_internal_symbol(symbol)
             for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
         ]
+
+    if group == "us-treasury-yield":
+        return [
+            build_fred_treasury_internal_symbol(series_id)
+            for series_id in WATCHLIST.get("US_TREASURY_YIELD", [])
+        ] + [FRED_TREASURY_SPREAD_SYMBOL]
 
     if group == "us-risk":
         risk_symbols = []
@@ -218,7 +236,7 @@ def get_market_indicator_symbols():
     return {
         build_cboe_index_internal_symbol(symbol)
         for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
-    }
+    } | get_fred_treasury_symbols()
 
 
 def get_all_price_symbols():

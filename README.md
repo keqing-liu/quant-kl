@@ -11,7 +11,7 @@
 | 任务 | 命令 |
 | --- | --- |
 | 更新行情并计算技术指标 | `python -m quant e update` |
-| 查看中美 ETF、个股和美国指数摘要 | `python -m quant e summary --days 5` |
+| 查看中美 ETF、加拿大/美国个股和美国指数摘要 | `python -m quant e summary --days 5` |
 | 只看中国 ETF 摘要 | `python -m quant e cn --days 5` |
 | 只看美国 ETF 摘要 | `python -m quant e us --days 5` |
 | 查看美国风险观察组合 | `python -m quant e risk --days 5` |
@@ -75,7 +75,9 @@ python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 - 支持按 `config/watchlist.py` 批量更新关注标的
 - 支持同步沪深 A 股股票池，并按股票池批量下载 A 股财务指标和三大报表
 - 支持 watchlist 中的美国股票、ETF 和指数：当前只下载行情，优先使用 FMP Basic，失败时使用 Twelve Data
+- 支持 watchlist 中的加拿大多伦多股票：使用 Alpha Vantage 下载日线行情，例如 `RY.TRT` / `TD.TRT`
 - 支持用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标
+- 支持用 FRED 下载 10Y / 2Y 美债收益率，并在本地计算 10Y-2Y 利差
 - 支持基于新浪财报数据计算自由现金流、ROIC、净负债率等巴菲特式基本面指标
 - 支持基于年报 ROE、负债率、净利润增长率等指标做基本面筛选
 - 通过 `database/schema/base.sql` 初始化新数据库，并使用 `database/migrations/` 管理旧数据库结构迁移
@@ -83,7 +85,9 @@ python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 - 提供简单数据质量检查，覆盖重复交易日、OHLC 异常、缺失价格和成交量等问题
 - 计算均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等指标
 - 支持由日线行情聚合周线行情，并计算周级别均线、布林带、KDJ、CCI 等指标
-- 支持按分组输出最近交易日技术指标摘要、Cboe 市场风险指标价格序列和简单打分结果
+- 支持按分组输出最近交易日技术指标摘要、Cboe / FRED 市场指标均线和简单打分结果
+- 支持每日交易研究日报展示美国国债收益率曲线摘要和加拿大个股摘要
+- 支持估算 TD Science & Technology Fund - D (TDB3098) 单日涨跌幅
 - 绘制 K 线图、均线、布林带、KDJ、CCI、VIX / VXN / VVIX / SKEW 风险指标等图表
 - 回测沪深 300 ETF 与债券 ETF 的简单动态轮动策略
 
@@ -104,6 +108,7 @@ quant-kl/
 │   ├── fundamental_screen.py
 │   ├── short_term_oversold_score.py
 │   ├── etf_trend_volatility_score.py
+│   ├── tdb3098_daily_return.py
 │   └── bond_stock_yearly_return.py
 ├── backtest/
 │   ├── __init__.py
@@ -116,9 +121,11 @@ quant-kl/
 │   └── *.csv
 ├── data_fetch/
 │   ├── __init__.py
+│   ├── fetch_alpha_vantage_ca.py
 │   ├── fetch_etf.py
 │   ├── fetch_cboe_market.py
 │   ├── fetch_financial.py
+│   ├── fetch_fred_treasury.py
 │   ├── fetch_us_market.py
 │   ├── fetch_stock.py
 │   ├── update_financial_data.py
@@ -127,6 +134,10 @@ quant-kl/
 ├── data_manager/
 │   ├── __init__.py
 │   └── data_manager.py
+├── repositories/
+│   ├── __init__.py
+│   ├── price_repository.py
+│   └── update_log_repository.py
 ├── database/
 │   ├── __pycache__/
 │   ├── schema/
@@ -168,16 +179,18 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `watchlist.py` | 维护关注标的列表。`WATCHLIST["ETF"]` 保存 ETF 代码，`WATCHLIST["STOCK"]` 保存股票代码。 |
+| `watchlist.py` | 维护关注标的列表。包括中国 ETF / A 股、加拿大股票、美国 ETF / 股票 / 指数、Cboe 风险指标和 FRED 美债收益率序列。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
 ### `data_fetch/`
 
 | 文件 | 用途 |
 | --- | --- |
+| `fetch_alpha_vantage_ca.py` | 使用 Alpha Vantage 下载加拿大多伦多股票日线行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_cboe_market.py` | 使用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标，并整理成 `price_data` 兼容字段。 |
 | `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
 | `fetch_financial.py` | 使用 AkShare 下载并整理单只 A 股财务指标和三大报表。三大报表使用新浪端口，不使用东方财富端口。 |
+| `fetch_fred_treasury.py` | 使用 FRED CSV 下载 10Y / 2Y 美债收益率，并整理成 `price_data` 兼容字段。 |
 | `fetch_us_market.py` | 使用 FMP Basic / Twelve Data 下载美国股票、ETF 和指数历史行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_stock.py` | 使用 `akshare.stock_zh_a_daily` 下载单只 A 股前复权日线行情。 |
 | `update_financial_data.py` | 从 `stock_universe` 读取股票池，批量下载财务指标和三大报表，并写入 SQLite。 |
@@ -190,6 +203,14 @@ quant-kl/
 | 文件 | 用途 |
 | --- | --- |
 | `data_manager.py` | 数据管理层。负责调用下载函数、判断数据库中最新日期、过滤增量数据，写入 `price_data` 表，并记录 `data_update_log`。 |
+| `__init__.py` | 将目录标记为 Python 包。 |
+
+### `repositories/`
+
+| 文件 | 用途 |
+| --- | --- |
+| `price_repository.py` | `price_data` 表读写封装，包括查询最新日期和批量插入行情。 |
+| `update_log_repository.py` | `data_update_log` 表写入封装，记录每次行情更新结果。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
 ### `database/`
@@ -231,6 +252,7 @@ quant-kl/
 | `fundamental_screen.py` | 筛选近 10 年每年年报 ROE 大于阈值的公司，并输出平均 ROE、负债率和净利润增长率。 |
 | `short_term_oversold_score.py` | 基于 KDJ、CCI、布林带和均线等条件，对标的进行短期超跌关注度打分。 |
 | `etf_trend_volatility_score.py` | 用趋势和波动率规则，对指定 ETF 最近 5 个交易日进行打分。 |
+| `tdb3098_daily_return.py` | 根据 TD Science & Technology Fund - D 前十大持仓权重估算基金单日涨跌幅；Samsung / SK Hynix return 由手动百分比输入。 |
 | `bond_stock_yearly_return.py` | 计算债券 ETF、沪深 300 ETF、中证 1000 ETF 等标的最近 10 个自然年的年度收益率。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
@@ -296,9 +318,10 @@ python main.py
 
 1. 初始化 SQLite 数据库
 2. 读取 `config/watchlist.py`
-3. 更新 ETF、股票和市场风险指标序列到 `price_data`
+3. 更新 ETF、股票、加拿大股票、美国指数、Cboe 风险指标和 FRED 美债收益率序列到 `price_data`
 4. 将每个标的的更新结果写入 `data_update_log`
-5. 为可计算的价格资产计算技术指标并写入 `indicators`
+5. 本地生成 `fred_t10y2y` 10Y-2Y 美债利差序列
+6. 为可计算的价格资产计算技术指标并写入 `indicators`
 
 `main.py` 不会自动输出指标摘要。查看摘要请使用 `python -m analysis.summary --group ...`。
 
@@ -386,15 +409,26 @@ python -m data_fetch.update_financial_data --symbol sh600519 --force-refresh
 python -m data_fetch.update_financial_data --symbol sh600519
 ```
 
-### 美国股票、ETF 和市场风险指标数据
+### 北美股票、ETF 和市场风险指标数据
 
 美国股票、ETF 和美国指数行情优先来自 FMP Basic，Twelve Data 作为备用源。watchlist 中的 ticker 会统一写成 `us_` 前缀的内部 symbol，例如 `AAPL` 入库为 `us_aapl`，`BRK-B` 入库为 `us_brk_b`。Nasdaq Composite 仍可在配置中写成 `NDQ`，入库为 `nasdaq`，下载时会优先映射到 FMP 指数符号，并在备用源中映射到 Twelve Data 指数符号。
 
-FMP 和 Twelve Data 下载需要设置环境变量。这里的中文只是占位符，实际使用时要替换成你账户后台复制出来的真实 key：
+加拿大多伦多股票来自 Alpha Vantage，使用其加拿大交易所后缀，例如 `RY.TRT` 入库为 `ca_ry_trt`，`TD.TRT` 入库为 `ca_td_trt`。Alpha Vantage 免费版 `TIME_SERIES_DAILY` 的 `compact` 模式返回最近 100 条日线；项目会把每天新增的数据继续累积到本地 SQLite，因此长期运行后历史会逐步增加。
+
+FRED 美债收益率不需要 API key。项目会下载 `DGS10` 和 `DGS2`，并在本地按同日 close 生成 `fred_t10y2y`：
+
+| 数据 | 入库 symbol | 说明 |
+| --- | --- | --- |
+| `DGS10` | `fred_dgs10` | 10Y 美债收益率，数值 `4.25` 表示 `4.25%` |
+| `DGS2` | `fred_dgs2` | 2Y 美债收益率 |
+| 本地计算 | `fred_t10y2y` | 10Y - 2Y 利差，数值 `-0.35` 表示 `-0.35 个百分点` |
+
+FMP、Twelve Data 和 Alpha Vantage 下载需要设置环境变量。这里的中文只是占位符，实际使用时要替换成你账户后台复制出来的真实 key：
 
 ```bash
 export FMP_API_KEY="你的FMP key"
 export TWELVE_DATA_API_KEY="你的Twelve Data key"
+export ALPHA_VANTAGE_API_KEY="你的Alpha Vantage key"
 ```
 
 如需每次打开终端都自动生效，可以写入 `~/.zshrc`：
@@ -402,6 +436,7 @@ export TWELVE_DATA_API_KEY="你的Twelve Data key"
 ```bash
 echo 'export FMP_API_KEY="你的FMP key"' >> ~/.zshrc
 echo 'export TWELVE_DATA_API_KEY="你的Twelve Data key"' >> ~/.zshrc
+echo 'export ALPHA_VANTAGE_API_KEY="你的Alpha Vantage key"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -410,9 +445,10 @@ source ~/.zshrc
 ```bash
 echo $FMP_API_KEY
 echo $TWELVE_DATA_API_KEY
+echo $ALPHA_VANTAGE_API_KEY
 ```
 
-FMP 返回 `adjClose` 时，项目会用 `adjClose / close` 对 `open`、`high`、`low`、`close` 做同比例前复权，写入 `price_data` 的 `close` 为复权后的收盘价。Twelve Data 备用源当前按其 time series 返回的 OHLC 写入。已有标的日常增量更新会从数据库最新日期的下一天下载到今天；如果数据库里还没有记录，会按 FMP Basic 免费历史范围默认下载最近约 5 年。
+FMP 返回 `adjClose` 时，项目会用 `adjClose / close` 对 `open`、`high`、`low`、`close` 做同比例前复权，写入 `price_data` 的 `close` 为复权后的收盘价。Twelve Data 备用源当前按其 time series 返回的 OHLC 写入。Alpha Vantage 加拿大股票当前按其 daily OHLC 写入。已有标的日常增量更新会从数据库最新日期的下一天下载到今天；如果美国标的数据库里还没有记录，会按 FMP Basic 免费历史范围默认下载最近约 5 年。
 
 如果要给单个美国股票、ETF 或美国指数补历史，不想跑完整 watchlist，可以继续使用原来的 `backfill` 命令。它只补缺失日期，不覆盖已有同日记录；完成后会自动重新计算日线指标：
 
@@ -437,8 +473,10 @@ python -m quant e backfill BRK-B --start-date 2026-06-13 --end-date 2026-06-16
 | --- | --- | --- |
 | `缺少 FMP_API_KEY` | 当前终端没有读到 FMP key | 重新执行 `source ~/.zshrc`，或检查 `echo $FMP_API_KEY` |
 | `缺少 TWELVE_DATA_API_KEY` | 当前终端没有读到 Twelve Data key | 重新执行 `source ~/.zshrc`，或检查 `echo $TWELVE_DATA_API_KEY` |
+| `缺少 ALPHA_VANTAGE_API_KEY` | 当前终端没有读到 Alpha Vantage key | 免费注册 key 后写入 `~/.zshrc`，再执行 `source ~/.zshrc` |
 | `HTTP Error 402: Payment Required` | FMP Basic 对该 symbol、接口或日期范围没有权限 | 程序会自动尝试 Twelve Data；也可以用 `--start-date/--end-date` 缩小范围 |
 | Twelve Data 返回额度或权限错误 | 免费额度用完，或该 symbol 不支持 | 稍后重试，或登录 Twelve Data 后台检查额度 |
+| Alpha Vantage 返回额度提示 | 免费版每日请求数用完 | 减少 `CA_STOCK` 数量，或等第二天额度恢复 |
 
 VIX / VXN / VVIX / SKEW 使用 Cboe 官方日度 CSV。watchlist 中仍然写成 `^vix`、`^vxn`、`^vvix`、`^skew`，入库时会转换为内部 symbol：
 
@@ -449,9 +487,9 @@ VIX / VXN / VVIX / SKEW 使用 Cboe 官方日度 CSV。watchlist 中仍然写成
 | `^vvix` | `cboe_vvix` | Cboe `VVIX_History.csv` |
 | `^skew` | `cboe_skew` | Cboe `SKEW_History.csv` |
 
-Cboe CSV 没有成交量字段，因此 `price_data.volume` 会填 `0`。这些 Cboe 序列本身就是市场风险指标，不会写入 `indicators` 表，也不会计算 MA、KDJ、CCI 等技术指标。
+Cboe CSV 和 FRED 收益率序列没有成交量字段，因此 `price_data.volume` 会填 `0`。这些市场指标会写入 `indicators` 表，但只计算 `MA20` 和 `MA60`，不会计算 KDJ、CCI、布林带等价格交易指标。
 
-`python main.py` 会自动读取 `WATCHLIST["US_ETF"]`、`WATCHLIST["US_STOCK"]`、`WATCHLIST["US_INDEX"]` 和 `WATCHLIST["US_MARKET_INDICATOR"]` 并更新行情 / 指标序列：
+`python main.py` 会自动读取 `WATCHLIST["CA_STOCK"]`、`WATCHLIST["US_ETF"]`、`WATCHLIST["US_STOCK"]`、`WATCHLIST["US_INDEX"]`、`WATCHLIST["US_MARKET_INDICATOR"]` 和 `WATCHLIST["US_TREASURY_YIELD"]` 并更新行情 / 指标序列：
 
 ```bash
 python main.py
@@ -466,6 +504,21 @@ python main.py
 ```bash
 python -m data_fetch.update_us_financial_data
 ```
+
+### TDB3098 基金单日涨跌幅估算
+
+`analysis.tdb3098_daily_return` 用 TD Science & Technology Fund - D 当前前十大持仓权重估算基金单日涨跌幅。脚本会从 `price_data` 读取 NVDA、TSM、AMD、AVGO、AAPL、INTC、ASML 的相邻交易日收盘价计算 return；Samsung 和 SK Hynix 的当日涨跌幅需要手动输入；Anthropic 和剩余未知持仓暂按这 7 支可下载股票的简单平均 return 估算。
+
+手动输入一律按百分比数值理解：
+
+```bash
+python -m analysis.tdb3098_daily_return \
+  --date 2026-06-24 \
+  --samsung-return 1.2 \
+  --sk-hynix-return -0.8
+```
+
+上例中 `1.2` 表示上涨 `1.2%`，`-0.8` 表示下跌 `0.8%`。
 
 下载完成后，计算巴菲特式衍生指标：
 
@@ -553,10 +606,12 @@ python -m analysis.summary --group cn-etf --days 5 --frequency weekly
 | --- | --- | --- |
 | `cn-etf` | 中国 ETF 指数类标的，来自 `WATCHLIST["ETF"]` | `python -m analysis.summary --group cn-etf` |
 | `cn-stock` | 中国股票，来自 `WATCHLIST["STOCK"]` | `python -m analysis.summary --group cn-stock` |
+| `ca-stock` | 加拿大股票，来自 `WATCHLIST["CA_STOCK"]` | `python -m analysis.summary --group ca-stock` |
 | `us-etf` | 美国 ETF，来自 `WATCHLIST["US_ETF"]` | `python -m analysis.summary --group us-etf` |
 | `us-stock` | 美国股票，来自 `WATCHLIST["US_STOCK"]` | `python -m analysis.summary --group us-stock` |
 | `us-index` | 美国指数，来自 `WATCHLIST["US_INDEX"]`，例如 `NDQ` / Nasdaq Composite | `python -m analysis.summary --group us-index` |
-| `us-market-indicator` | Cboe VIX / VXN / VVIX / SKEW，只输出价格序列 | `python -m analysis.summary --group us-market-indicator` |
+| `us-market-indicator` | Cboe VIX / VXN / VVIX / SKEW，输出价格和 MA20 / MA60 | `python -m analysis.summary --group us-market-indicator` |
+| `us-treasury-yield` | FRED 10Y / 2Y 美债收益率和 10Y-2Y 利差 | `python -m analysis.summary --group us-treasury-yield` |
 | `us-risk` | 美国风险监控组合，默认包含 QQQ、SMH、VIX、VXN、VVIX、SKEW | `python -m analysis.summary --group us-risk` |
 
 手动指定标的：
@@ -681,6 +736,10 @@ WATCHLIST = {
     "STOCK": [
         "sh600519",
     ],
+    "CA_STOCK": [
+        "RY.TRT",
+        "TD.TRT",
+    ],
     "US_ETF": [
         "QQQ",
         "SMH",
@@ -699,6 +758,10 @@ WATCHLIST = {
         "^vvix",
         "^skew",
     ],
+    "US_TREASURY_YIELD": [
+        "DGS10",
+        "DGS2",
+    ],
 }
 ```
 
@@ -707,9 +770,11 @@ WATCHLIST = {
 内部 symbol 命名规则：
 
 - 中国 ETF / 股票保持 watchlist 里的原始 symbol，例如 `sh510310`。
+- 加拿大股票会转成 `ca_` 前缀，例如 `RY.TRT` 入库为 `ca_ry_trt`，`TD.TRT` 入库为 `ca_td_trt`。
 - 美国 ETF / 股票会转成 `us_` 前缀，例如 `QQQ` 入库为 `us_qqq`，`BRK-B` 入库为 `us_brk_b`。
 - 美国指数会转成对应指数名，例如 `NDQ` / Nasdaq Composite 入库为 `nasdaq`。
 - Cboe 市场风险指标会转成 `cboe_` 前缀，例如 `^vix` 入库为 `cboe_vix`。
+- FRED 美债收益率会转成 `fred_` 前缀，例如 `DGS10` 入库为 `fred_dgs10`；10Y-2Y 利差本地生成为 `fred_t10y2y`。
 
 ## 数据流
 
@@ -727,14 +792,15 @@ config/watchlist.py
         v
 data_fetch/fetch_etf.py / data_fetch/fetch_stock.py
 data_fetch/fetch_us_market.py / data_fetch/fetch_cboe_market.py
+data_fetch/fetch_alpha_vantage_ca.py / data_fetch/fetch_fred_treasury.py
         |
         v
 data_manager/data_manager.py
         |------------------------------+
         v
-database/quant.db: price_data
+repositories/price_repository.py ---> database/quant.db: price_data
         |
-        +--> database/quant.db: data_update_log
+        +--> repositories/update_log_repository.py ---> database/quant.db: data_update_log
         |
         v
 analysis/indicators.py
@@ -830,7 +896,7 @@ database/quant.db: buffett_metrics
 - 后续修改数据库结构时，推荐同时更新 `database/schema/base.sql` 和新增一份 `database/migrations/00N_*.sql`，再递增 `database/db_utils.py` 中的 `CURRENT_SCHEMA_VERSION`。
 - 当前 v1 迁移会为旧版 `price_data` 和 `indicators` 补齐 `created_at`、`updated_at` 字段，并记录版本号。
 - 第一版迁移机制保持简单，不重建历史表，也不会为已有旧表补复合外键约束。如需完全采用最新约束，建议先备份旧数据库，再重建数据库或后续补充更完整的迁移脚本。
-- 周线行情是从本地 `price_data` 派生出来的周级别数据，不额外请求外部周线接口；Cboe VIX / VXN / VVIX / SKEW 这类市场风险指标仍跳过 MA、KDJ、CCI、布林带等技术指标计算。
+- 周线行情是从本地 `price_data` 派生出来的周级别数据，不额外请求外部周线接口；Cboe VIX / VXN / VVIX / SKEW 和 FRED 美债收益率这类市场指标只计算 MA20 / MA60，跳过 KDJ、CCI、布林带等价格交易指标。
 - `asset_info` 暂时由 `database/init_asset_info.py` 手工维护，不从 `akshare` 自动同步。
 - `financial_indicators.announce_date` 目前保留为空字段；新浪三大报表的公告日保存在 `financial_statement_items.announce_date`。做严格历史回测时，应按公告日判断当时哪些财报已经可见，避免未来函数。
 - 财务数据不保存日频估值表；`buffett_metrics` 中涉及市值的字段只作为报告期层面的衍生结果保存。

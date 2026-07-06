@@ -1,20 +1,33 @@
-"""数据管理层：把下载到的行情增量写入 SQLite，并记录数据更新日志。"""
+"""价格数据更新服务。
+
+当前 DataManager 保留为 main.py / quant.py 使用的稳定入口。
+
+分层理解：
+1. data_fetch/ 只负责外部接口下载，并返回统一的行情 DataFrame。
+2. repositories/ 只负责 SQLite 读写，例如 price_data 和 data_update_log。
+3. DataManager 负责业务流程编排：查最新日期、决定下载窗口、调用下载、
+   过滤增量、调用 repository 入库并记录日志。
+"""
 
 from datetime import date, timedelta
 
 import pandas as pd
 
-from database.db_utils import (
-    get_connection,
-    get_latest_date,
-    log_data_update,
-)
-
 from data_fetch.fetch_cboe_market import (
     build_cboe_index_internal_symbol,
     download_cboe_index_data,
 )
+from data_fetch.fetch_alpha_vantage_ca import (
+    build_ca_stock_symbol,
+    download_alpha_vantage_ca_stock_data,
+)
 from data_fetch.fetch_etf import download_etf_data
+from data_fetch.fetch_fred_treasury import (
+    FRED_TREASURY_SPREAD_SYMBOL,
+    build_fred_treasury_internal_symbol,
+    download_fred_treasury_data,
+    get_fred_default_start_date,
+)
 from data_fetch.fetch_stock import download_stock_data
 from data_fetch.fetch_us_market import (
     build_us_index_symbol,
@@ -23,12 +36,27 @@ from data_fetch.fetch_us_market import (
     download_us_market_data,
     get_fmp_basic_start_date,
 )
+from database.db_utils import get_connection
+from repositories.price_repository import (
+    get_latest_price_date,
+    insert_price_data,
+)
+from repositories.update_log_repository import log_price_update
 
 
 class DataManager:
+    """价格更新流程编排器。
+
+    这个类现在更接近 services/price_update_service.py 的角色：
+    它不应该关心外部接口的解析细节，也尽量不直接写 SQL。
+    """
 
     def _is_us_today_no_new_data_error(self, error, latest_date_before, download_kwargs):
-        """判断美股日常重复更新时的“今天暂无新日线”情况。"""
+        """判断美股日常重复更新时的“今天暂无新日线”情况。
+
+        这是 service 层的业务规则：同样的接口错误，在日常重复更新场景
+        可以被解释为 no_new_data，而不是 failed。
+        """
 
         if latest_date_before is None:
             return False
@@ -62,7 +90,12 @@ class DataManager:
         max_pages=None,
         download_kwargs=None,
     ):
-        """更新单个 symbol 的价格数据，并写入 data_update_log。"""
+        """更新单个 symbol 的价格数据，并写入 data_update_log。
+
+        这是当前价格更新的统一流程：
+        repository 查库 -> data_fetch 下载 -> service 过滤增量 ->
+        repository 写库 -> repository 写日志。
+        """
 
         latest_date_before = None
         rows_downloaded = 0
@@ -76,7 +109,8 @@ class DataManager:
             # 1. 查询数据库已有最新日期
             # =========================
 
-            latest_date_before = get_latest_date(symbol)
+            # Repository 职责：查询 price_data 里已有的最新日期。
+            latest_date_before = get_latest_price_date(symbol)
 
             latest_date_dt = None
             if latest_date_before is not None:
@@ -88,6 +122,8 @@ class DataManager:
             # 2. 下载数据
             # =========================
 
+            # data_fetch 职责：download_func 来自 data_fetch/*，只负责下载并
+            # 返回 date/open/high/low/close/volume 这套统一字段。
             if force_full_history:
                 df = download_func(
                     symbol,
@@ -102,7 +138,8 @@ class DataManager:
 
             # 如果下载函数返回 None 或空 DataFrame，也要写日志。
             if df is None or df.empty:
-                log_data_update(
+                # Repository 职责：把本次更新结果写入 data_update_log。
+                log_price_update(
                     symbol=symbol,
                     asset_type=asset_type,
                     latest_date_before=latest_date_before,
@@ -140,7 +177,8 @@ class DataManager:
 
             # 如果接口有数据，但没有比数据库更新的数据，也要写日志。
             if df.empty:
-                log_data_update(
+                # Repository 职责：把“无新增数据”的结果写入日志。
+                log_price_update(
                     symbol=symbol,
                     asset_type=asset_type,
                     latest_date_before=latest_date_before,
@@ -188,42 +226,16 @@ class DataManager:
             # 6. 写入 price_data
             # =========================
 
-            conn = get_connection()
-            cursor = conn.cursor()
-
-            sql = """
-            INSERT OR IGNORE INTO price_data (
-                symbol,
-                date,
-                open,
-                high,
-                low,
-                close,
-                volume
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """
-
-            data = list(
-                df.itertuples(index=False, name=None)
-            )
-
-            cursor.executemany(sql, data)
-
-            # 注意：
-            # len(df) 是准备写入的行数；
-            # cursor.rowcount 是实际插入的行数。
-            # 因为 INSERT OR IGNORE 会跳过重复记录，所以两者可能不同。
-            rows_inserted = cursor.rowcount
-
-            conn.commit()
-            conn.close()
+            # Repository 职责：执行 INSERT OR IGNORE 并返回实际插入行数。
+            # 注意：len(df) 是准备写入的行数；rows_inserted 是实际新增行数。
+            rows_inserted = insert_price_data(df)
 
             # =========================
             # 7. 写入成功日志
             # =========================
 
-            log_data_update(
+            # Repository 职责：记录成功日志。
+            log_price_update(
                 symbol=symbol,
                 asset_type=asset_type,
                 latest_date_before=latest_date_before,
@@ -255,7 +267,8 @@ class DataManager:
                     download_kwargs,
                 )
             ):
-                log_data_update(
+                # Repository 职责：记录已识别的 no_new_data 日志。
+                log_price_update(
                     symbol=symbol,
                     asset_type=asset_type,
                     latest_date_before=latest_date_before,
@@ -271,7 +284,8 @@ class DataManager:
                 print(f"{symbol} 无需更新：今天暂无新的美股日线数据")
                 return
 
-            log_data_update(
+            # Repository 职责：记录失败日志。
+            log_price_update(
                 symbol=symbol,
                 asset_type=asset_type,
                 latest_date_before=latest_date_before,
@@ -287,7 +301,11 @@ class DataManager:
             print(f"{symbol} 更新失败: {e}")
 
     def _get_fmp_download_kwargs(self, symbol, start_date=None, end_date=None, full_history=False):
-        """计算 FMP Basic 下载窗口。"""
+        """计算 FMP Basic 下载窗口。
+
+        这是 service 层的决策逻辑：根据数据库最新日期和用户参数，
+        决定这次应该向外部数据源请求哪个日期区间。
+        """
 
         if start_date is not None:
             # 用户在 CLI 里显式给了 --start-date 时，以用户输入为准。
@@ -296,7 +314,7 @@ class DataManager:
             # FMP Basic 免费档历史范围有限，默认按最近约 5 年请求。
             resolved_start_date = get_fmp_basic_start_date()
         else:
-            latest_date_before = get_latest_date(symbol)
+            latest_date_before = get_latest_price_date(symbol)
             if latest_date_before is None:
                 resolved_start_date = get_fmp_basic_start_date()
             else:
@@ -314,7 +332,24 @@ class DataManager:
             "adjust_prices": True,
         }
 
+    def _get_fred_download_kwargs(self, symbol):
+        """计算 FRED 日常下载窗口。"""
+
+        latest_date_before = get_latest_price_date(symbol)
+        if latest_date_before is None:
+            resolved_start_date = get_fred_default_start_date()
+        else:
+            resolved_start_date = (
+                pd.to_datetime(latest_date_before) + timedelta(days=1)
+            ).strftime("%Y-%m-%d")
+
+        return {
+            "start_date": resolved_start_date,
+            "end_date": date.today().strftime("%Y-%m-%d"),
+        }
+
     def update_etf(self, symbol):
+        """服务入口：更新单只中国 ETF。"""
 
         self._update_price_data(
             symbol=symbol,
@@ -324,6 +359,7 @@ class DataManager:
         )
 
     def update_stock(self, symbol):
+        """服务入口：更新单只 A 股股票。"""
 
         self._update_price_data(
             symbol=symbol,
@@ -332,8 +368,19 @@ class DataManager:
             data_source="akshare",
         )
 
+    def update_ca_stock(self, ticker):
+        """服务入口：更新单只加拿大股票行情。"""
+
+        symbol = build_ca_stock_symbol(ticker)
+        self._update_price_data(
+            symbol=symbol,
+            download_func=download_alpha_vantage_ca_stock_data,
+            asset_type="CA_STOCK",
+            data_source="alpha_vantage",
+        )
+
     def update_us_stock(self, ticker):
-        """更新单只美国股票行情。"""
+        """服务入口：更新单只美国股票行情。"""
 
         symbol = build_us_symbol(ticker)
         self._update_price_data(
@@ -346,7 +393,7 @@ class DataManager:
         )
 
     def update_us_etf(self, ticker):
-        """更新单只美国 ETF 行情。"""
+        """服务入口：更新单只美国 ETF 行情。"""
 
         symbol = build_us_symbol(ticker)
         self._update_price_data(
@@ -379,6 +426,125 @@ class DataManager:
             download_func=download_cboe_index_data,
             asset_type="US_MARKET_INDICATOR",
             data_source="cboe",
+        )
+
+    def update_us_treasury_yield(self, series_id):
+        """更新单个 FRED 美国国债收益率序列。"""
+
+        symbol = build_fred_treasury_internal_symbol(series_id)
+        self._update_price_data(
+            symbol=symbol,
+            download_func=download_fred_treasury_data,
+            asset_type="US_TREASURY_YIELD",
+            data_source="fred",
+            download_kwargs=self._get_fred_download_kwargs(symbol),
+        )
+
+    def update_us_treasury_spread(self):
+        """按同日 10Y - 2Y 生成 FRED 美债收益率利差序列。"""
+
+        symbol = FRED_TREASURY_SPREAD_SYMBOL
+        latest_date_before = get_latest_price_date(symbol)
+
+        sql = """
+        SELECT
+            d10.date,
+            d10.close - d2.close AS close
+        FROM price_data AS d10
+        JOIN price_data AS d2
+        ON d10.date = d2.date
+        WHERE d10.symbol = ?
+          AND d2.symbol = ?
+        ORDER BY d10.date
+        """
+
+        conn = None
+        try:
+            conn = get_connection()
+            df = pd.read_sql(
+                sql,
+                conn,
+                params=(
+                    build_fred_treasury_internal_symbol("DGS10"),
+                    build_fred_treasury_internal_symbol("DGS2"),
+                ),
+            )
+        finally:
+            if conn is not None:
+                conn.close()
+
+        if df.empty:
+            log_price_update(
+                symbol=symbol,
+                asset_type="US_TREASURY_YIELD",
+                latest_date_before=latest_date_before,
+                rows_downloaded=0,
+                rows_inserted=0,
+                status="empty",
+                message="DGS10/DGS2 无共同日期，无法生成利差",
+                data_source="fred_local_spread",
+            )
+            print(f"{symbol} 无共同日期，无法生成利差")
+            return
+
+        latest_date_dt = None
+        if latest_date_before is not None:
+            latest_date_dt = pd.to_datetime(latest_date_before)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df[df["date"] > latest_date_dt]
+        else:
+            df["date"] = pd.to_datetime(df["date"])
+
+        if df.empty:
+            log_price_update(
+                symbol=symbol,
+                asset_type="US_TREASURY_YIELD",
+                latest_date_before=latest_date_before,
+                rows_downloaded=0,
+                rows_inserted=0,
+                status="no_new_data",
+                message="DGS10/DGS2 没有新的共同日期",
+                data_source="fred_local_spread",
+            )
+            print(f"{symbol} 无需更新")
+            return
+
+        df["open"] = df["close"]
+        df["high"] = df["close"]
+        df["low"] = df["close"]
+        df["volume"] = 0
+        df["symbol"] = symbol
+        df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+
+        price_df = df[[
+            "symbol",
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]]
+        rows_inserted = insert_price_data(price_df)
+        start_date = price_df["date"].min()
+        end_date = price_df["date"].max()
+
+        log_price_update(
+            symbol=symbol,
+            asset_type="US_TREASURY_YIELD",
+            latest_date_before=latest_date_before,
+            start_date=start_date,
+            end_date=end_date,
+            rows_downloaded=len(price_df),
+            rows_inserted=rows_inserted,
+            status="success",
+            message="FRED 10Y-2Y 利差生成成功",
+            data_source="fred_local_spread",
+        )
+
+        print(
+            f"{symbol} 更新完成：生成 {len(price_df)} 行，"
+            f"实际新增 {rows_inserted} 行"
         )
 
     def backfill_stooq_symbol(self, symbol, max_pages=None, start_date=None, end_date=None):

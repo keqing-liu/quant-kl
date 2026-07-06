@@ -43,6 +43,10 @@ def run_etf_summary(args):
     print("=" * 120)
     run_summary(group="cn-stock", days=args.days)
 
+    print("\n加拿大个股摘要")
+    print("=" * 120)
+    run_summary(group="ca-stock", days=args.days)
+
     print("\n美国 ETF 摘要")
     print("=" * 120)
     run_summary(group="us-etf", days=args.days)

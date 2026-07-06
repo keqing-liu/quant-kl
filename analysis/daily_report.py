@@ -22,6 +22,11 @@ from analysis.summary import (
     load_summary_data,
 )
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+from data_fetch.fetch_alpha_vantage_ca import build_ca_stock_symbol
+from data_fetch.fetch_fred_treasury import (
+    FRED_TREASURY_SPREAD_SYMBOL,
+    build_fred_treasury_internal_symbol,
+)
 from data_fetch.fetch_us_market import build_us_index_symbol, build_us_symbol
 from database.db_utils import get_connection, initialize_database
 
@@ -32,6 +37,7 @@ DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports" / "daily"
 
 SUMMARY_GROUPS = [
     ("中国 ETF 摘要", "cn-etf"),
+    ("加拿大个股摘要", "ca-stock"),
     ("美国 ETF 摘要", "us-etf"),
     ("美国个股摘要", "us-stock"),
 ]
@@ -96,12 +102,18 @@ def _load_watchlist_name_map():
 
         if current_group in {"ETF", "STOCK"}:
             name_map[raw_symbol] = name
+        elif current_group == "CA_STOCK":
+            name_map[build_ca_stock_symbol(raw_symbol)] = name
         elif current_group in {"US_ETF", "US_STOCK"}:
             name_map[build_us_symbol(raw_symbol)] = name
         elif current_group == "US_INDEX":
             name_map[build_us_index_symbol(raw_symbol)] = name
         elif current_group == "US_MARKET_INDICATOR":
             name_map[build_cboe_index_internal_symbol(raw_symbol)] = name
+        elif current_group == "US_TREASURY_YIELD":
+            name_map[build_fred_treasury_internal_symbol(raw_symbol)] = name
+
+    name_map[FRED_TREASURY_SPREAD_SYMBOL] = "10Y-2Y 利差"
 
     return name_map
 
@@ -364,6 +376,40 @@ def _risk_summary(days=5):
     return risk_df
 
 
+def _treasury_yield_summary(days=5):
+    treasury_df = _build_group_summary(
+        "us-treasury-yield",
+        days=days,
+        frequency="daily",
+    )
+    if treasury_df.empty:
+        return treasury_df
+
+    def describe(row):
+        symbol = row.get("symbol", "")
+        close = row.get("close")
+        ma20 = row.get("MA20")
+        ma60 = row.get("MA60")
+
+        if pd.isna(close):
+            return row.get("status", "")
+
+        if symbol == FRED_TREASURY_SPREAD_SYMBOL:
+            if close < 0:
+                return "收益率曲线倒挂"
+            return "收益率曲线正斜率"
+
+        if pd.notna(ma20) and pd.notna(ma60):
+            if ma20 >= ma60:
+                return "收益率短中期均线偏上行"
+            return "收益率短中期均线偏下行"
+
+        return row.get("status", "")
+
+    treasury_df["yield_note"] = treasury_df.apply(describe, axis=1)
+    return treasury_df
+
+
 def _oversold_scores():
     rows = []
     for symbol in get_indicator_symbols():
@@ -424,7 +470,11 @@ def _data_quality_summary():
             """
             SELECT symbol, date, close
             FROM price_data
-            WHERE close IS NULL OR close <= 0
+            WHERE close IS NULL
+               OR (
+                    close <= 0
+                    AND symbol != 'fred_t10y2y'
+               )
             ORDER BY symbol, date
             """,
         ),
@@ -510,6 +560,7 @@ def build_daily_report(report_date=None, days=5):
     latest_status = _latest_price_status()
     update_logs = _latest_update_logs()
     risk_df = _risk_summary(days=days)
+    treasury_df = _treasury_yield_summary(days=days)
     oversold_df = _add_asset_names(_oversold_scores(), symbol_column="ETF")
     trend_df = _add_asset_names(_trend_scores(), symbol_column="ETF")
     quality_df, quality_details = _data_quality_summary()
@@ -552,6 +603,13 @@ def build_daily_report(report_date=None, days=5):
         _markdown_table(
             risk_df,
             columns=["名称", "symbol", "date", "close", "MA20", "MA60", "risk_note"],
+        ),
+        "",
+        "## 美国国债收益率曲线摘要",
+        "",
+        _markdown_table(
+            treasury_df,
+            columns=["名称", "symbol", "date", "close", "MA20", "MA60", "yield_note"],
         ),
     ]
 

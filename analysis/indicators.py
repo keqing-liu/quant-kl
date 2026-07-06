@@ -12,13 +12,14 @@ import numpy as np
 from config.watchlist import WATCHLIST
 from database.db_utils import get_connection, initialize_database
 from data_fetch.fetch_cboe_market import build_cboe_index_internal_symbol
+from data_fetch.fetch_fred_treasury import get_fred_treasury_symbols
 from data_fetch.fetch_us_market import build_us_index_symbol
 
 
 SKIP_INDICATOR_SYMBOLS = {
     build_cboe_index_internal_symbol(symbol)
     for symbol in WATCHLIST.get("US_MARKET_INDICATOR", [])
-}
+} | get_fred_treasury_symbols()
 
 
 INDICATOR_COLUMNS = [

@@ -26,10 +26,12 @@ manager = DataManager()
 # WATCHLIST 是一个字典，"ETF" 这个键对应 ETF 代码列表。
 etf_list = WATCHLIST["ETF"]
 stock_list = WATCHLIST["STOCK"]
+ca_stock_list = WATCHLIST.get("CA_STOCK", [])
 us_etf_list = WATCHLIST.get("US_ETF", [])
 us_stock_list = WATCHLIST.get("US_STOCK", [])
 us_index_list = WATCHLIST.get("US_INDEX", [])
 us_market_indicator_list = WATCHLIST.get("US_MARKET_INDICATOR", [])
+us_treasury_yield_list = WATCHLIST.get("US_TREASURY_YIELD", [])
 
 # 遍历 ETF 列表，逐个更新。
 for symbol in etf_list:
@@ -49,6 +51,14 @@ for symbol in stock_list:
 
     except Exception as e:
         print(f"股票 {symbol} 更新失败: {e}")
+
+for ticker in ca_stock_list:
+
+    try:
+        manager.update_ca_stock(ticker)
+
+    except Exception as e:
+        print(f"加拿大股票 {ticker} 更新失败: {e}")
 
 for ticker in us_etf_list:
 
@@ -81,6 +91,20 @@ for symbol in us_market_indicator_list:
 
     except Exception as e:
         print(f"美国市场指标 {symbol} 更新失败: {e}")
+
+for series_id in us_treasury_yield_list:
+
+    try:
+        manager.update_us_treasury_yield(series_id)
+
+    except Exception as e:
+        print(f"美国国债收益率 {series_id} 更新失败: {e}")
+
+try:
+    manager.update_us_treasury_spread()
+
+except Exception as e:
+    print(f"美国国债收益率利差更新失败: {e}")
 
 # 计算技术指标
 

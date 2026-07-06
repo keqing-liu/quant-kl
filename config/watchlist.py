@@ -25,6 +25,11 @@ WATCHLIST = {
         "sz000333",  # 美的集团
     ],
 
+    "CA_STOCK": [
+        "RY.TRT",  # Royal Bank of Canada
+        "TD.TRT",  # Toronto-Dominion Bank
+    ],
+
     "US_ETF": [
         "SPY",  # 标普500 ETF
         "QQQ",  # 纳斯达克QQQ
@@ -40,6 +45,11 @@ WATCHLIST = {
         "^vxn",  # Nasdaq-100 Volatility Index；使用 Cboe 官方日度 CSV
         "^vvix",  # Cboe VVIX Index；使用 Cboe 官方日度 CSV
         "^skew",  # Cboe SKEW Index；使用 Cboe 官方日度 CSV
+    ],
+
+    "US_TREASURY_YIELD": [
+        "DGS10",  # 10Y 美债收益率
+        "DGS2",  # 2Y 美债收益率
     ],
 
     "US_STOCK": [
