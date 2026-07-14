@@ -29,6 +29,10 @@ from data_fetch.fetch_fred_treasury import (
     download_fred_treasury_data,
     get_fred_default_start_date,
 )
+from data_fetch.fetch_hk_stock import (
+    build_hk_stock_symbol,
+    download_hk_stock_data,
+)
 from data_fetch.fetch_stock import download_stock_data
 from data_fetch.fetch_us_market import (
     build_us_index_symbol,
@@ -472,6 +476,17 @@ class DataManager:
             download_func=download_stock_data,
             asset_type="STOCK",
             data_source="akshare",
+        )
+
+    def update_hk_stock(self, symbol):
+        """服务入口：更新单只港股股票行情。"""
+
+        internal_symbol = build_hk_stock_symbol(symbol)
+        self._update_price_data(
+            symbol=internal_symbol,
+            download_func=download_hk_stock_data,
+            asset_type="HK_STOCK",
+            data_source="akshare_stock_hk_daily_sina",
         )
 
     def update_ca_stock(self, ticker):

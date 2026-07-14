@@ -25,6 +25,11 @@ WATCHLIST = {
         "sz000333",  # 美的集团
     ],
 
+    "HK_STOCK": [
+        "00700",  # 腾讯控股
+        "09992",  # 泡泡玛特
+    ],
+
     "CA_STOCK": [
         "RY.TO",  # Royal Bank of Canada，多伦多交易所
         "TD.TO",  # Toronto-Dominion Bank，多伦多交易所

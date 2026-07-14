@@ -4,7 +4,7 @@ This file gives future coding agents project-specific context for `quant-kl`.
 
 ## Project Purpose
 
-`quant-kl` is a personal quantitative research project for China ETF / A-share data and watchlist-based US stock / ETF price data. It stores market data, technical indicators, stock universe data, financial indicators, Sina financial statements, and derived Buffett-style metrics in a local SQLite database.
+`quant-kl` is a personal quantitative research project for China ETF / A-share data, Hong Kong stock prices, and watchlist-based North American stock / ETF price data. It stores market data, technical indicators, stock universe data, financial indicators, Sina financial statements, and derived Buffett-style metrics in a local SQLite database.
 
 This repository is for personal research and learning only. Do not present outputs as investment advice.
 
@@ -22,6 +22,7 @@ Daily ETF research shortcut commands:
 python -m quant e update
 python -m quant e summary --days 5
 python -m quant e cn --days 5
+python -m quant e hk --days 5
 python -m quant e us --days 5
 python -m quant e risk --days 5
 python -m quant e score
@@ -82,6 +83,13 @@ Do not add Eastmoney financial-statement endpoints unless the user explicitly as
 Do not add dividend-event downloads for now. Giant/third-party dividend endpoints were unstable, so `financial_dividend_events` was removed in schema v7 and dividend-related metric fields were removed in v8.
 
 Do not store daily valuation data as a financial table. Financial data should remain report-period or event structured. If market cap is needed for derived metrics, compute it as a report-period result rather than storing a daily valuation table.
+
+Hong Kong market data policy:
+
+- Hong Kong stock prices come from AkShare `stock_hk_daily` using the Sina endpoint with forward-adjusted (`qfq`) daily prices.
+- Configure Hong Kong stocks under `WATCHLIST["HK_STOCK"]` with five-digit codes, e.g. `00700` and `09992`.
+- Internal Hong Kong symbols use the `hk_` prefix, e.g. `00700` becomes `hk_00700`.
+- Hong Kong stocks are price-only for now; do not imply that Hong Kong company financial statements are downloaded.
 
 US market data policy:
 
@@ -160,6 +168,7 @@ PYTHONPYCACHEPREFIX=/private/tmp/quantkl-pycache python3 -m py_compile \
   data_fetch/update_financial_data.py \
   analysis/calculate_buffett_metrics.py \
   analysis/stock_financial_snapshot.py \
+  data_fetch/fetch_hk_stock.py \
   data_fetch/fetch_us_market.py \
   data_fetch/update_us_financial_data.py \
   database/db_utils.py

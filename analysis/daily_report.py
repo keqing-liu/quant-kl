@@ -11,10 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from analysis.etf_trend_volatility_score import check_signal as check_trend_signal
-from analysis.short_term_oversold_score import (
-    check_signal as check_oversold_signal,
-    get_all_symbols as get_indicator_symbols,
-)
+from analysis.short_term_oversold_score import check_signal as check_oversold_signal
 from analysis.summary import (
     build_group_symbols,
     get_market_indicator_symbols,
@@ -27,6 +24,7 @@ from data_fetch.fetch_fred_treasury import (
     FRED_TREASURY_SPREAD_SYMBOL,
     build_fred_treasury_internal_symbol,
 )
+from data_fetch.fetch_hk_stock import build_hk_stock_symbol
 from data_fetch.fetch_us_market import build_us_index_symbol, build_us_symbol
 from database.db_utils import get_connection, initialize_database
 
@@ -37,6 +35,7 @@ DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports" / "daily"
 
 SUMMARY_GROUPS = [
     ("中国 ETF 摘要", "cn-etf"),
+    ("港股个股摘要", "hk-stock"),
     ("加拿大个股摘要", "ca-stock"),
     ("美国 ETF 摘要", "us-etf"),
     ("美国个股摘要", "us-stock"),
@@ -44,6 +43,7 @@ SUMMARY_GROUPS = [
 
 WEEKLY_GROUPS = [
     ("中国 ETF 周线趋势", "cn-etf"),
+    ("港股个股周线趋势", "hk-stock"),
     ("美国 ETF 周线趋势", "us-etf"),
     ("美国指数周线趋势", "us-index"),
 ]
@@ -102,6 +102,8 @@ def _load_watchlist_name_map():
 
         if current_group in {"ETF", "STOCK"}:
             name_map[raw_symbol] = name
+        elif current_group == "HK_STOCK":
+            name_map[build_hk_stock_symbol(raw_symbol)] = name
         elif current_group == "CA_STOCK":
             name_map[build_ca_stock_symbol(raw_symbol)] = name
         elif current_group in {"US_ETF", "US_STOCK"}:
@@ -412,7 +414,11 @@ def _treasury_yield_summary(days=5):
 
 def _oversold_scores():
     rows = []
-    for symbol in get_indicator_symbols():
+    target_symbols = []
+    for group in ("cn-etf", "hk-stock", "ca-stock", "us-etf", "us-stock", "us-index"):
+        target_symbols.extend(build_group_symbols(group))
+
+    for symbol in target_symbols:
         try:
             rows.append(check_oversold_signal(symbol))
         except Exception:

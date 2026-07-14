@@ -22,6 +22,7 @@ from data_fetch.fetch_fred_treasury import (
     build_fred_treasury_internal_symbol,
     get_fred_treasury_symbols,
 )
+from data_fetch.fetch_hk_stock import build_hk_stock_symbol
 from data_fetch.fetch_us_market import build_us_index_symbol, build_us_symbol
 
 
@@ -164,6 +165,12 @@ def build_group_symbols(group):
 
     if group == "cn-stock":
         return WATCHLIST.get("STOCK", [])
+
+    if group == "hk-stock":
+        return [
+            build_hk_stock_symbol(symbol)
+            for symbol in WATCHLIST.get("HK_STOCK", [])
+        ]
 
     if group == "ca-stock":
         return [

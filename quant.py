@@ -29,7 +29,7 @@ def run_daily_update(_args):
 
 
 def run_etf_summary(args):
-    """Show China/US ETF, stock, and US index summaries."""
+    """Show China, Hong Kong, Canada, and US market summaries."""
 
     # 这里放在函数内部 import，是为了让 `python -m quant --help` 更快更干净：
     # 只是看帮助时，不需要提前加载 pandas / 数据库相关模块。
@@ -42,6 +42,10 @@ def run_etf_summary(args):
     print("\n中国个股摘要")
     print("=" * 120)
     run_summary(group="cn-stock", days=args.days)
+
+    print("\n港股个股摘要")
+    print("=" * 120)
+    run_summary(group="hk-stock", days=args.days)
 
     print("\n加拿大个股摘要")
     print("=" * 120)
@@ -61,7 +65,7 @@ def run_etf_summary(args):
 
 
 def run_etf_weekly_summary(args):
-    """Show China/US ETF, stock, and US index weekly summaries."""
+    """Show China, Hong Kong, Canada, and US weekly market summaries."""
 
     from analysis.summary import run_summary
 
@@ -72,6 +76,14 @@ def run_etf_weekly_summary(args):
     print("\n中国个股周线摘要")
     print("=" * 120)
     run_summary(group="cn-stock", days=args.days, frequency="weekly")
+
+    print("\n港股个股周线摘要")
+    print("=" * 120)
+    run_summary(group="hk-stock", days=args.days, frequency="weekly")
+
+    print("\n加拿大个股周线摘要")
+    print("=" * 120)
+    run_summary(group="ca-stock", days=args.days, frequency="weekly")
 
     print("\n美国 ETF 周线摘要")
     print("=" * 120)
@@ -237,14 +249,14 @@ def build_parser():
 
     summary_parser = etf_subparsers.add_parser(
         "summary",
-        help="输出中美 ETF、个股和美国指数摘要",
+        help="输出中国 ETF/个股、港股、加拿大个股和美国市场摘要",
     )
     add_days_argument(summary_parser)
     summary_parser.set_defaults(func=run_etf_summary)
 
     weekly_summary_parser = etf_subparsers.add_parser(
         "weekly-summary",
-        help="输出中美 ETF、个股和美国指数周线摘要",
+        help="输出中国 ETF/个股、港股、加拿大个股和美国市场周线摘要",
     )
     add_days_argument(weekly_summary_parser)
     weekly_summary_parser.set_defaults(func=run_etf_weekly_summary)
@@ -255,6 +267,13 @@ def build_parser():
     )
     add_days_argument(cn_parser)
     cn_parser.set_defaults(func=run_group_summary("cn-etf"))
+
+    hk_parser = etf_subparsers.add_parser(
+        "hk",
+        help="只输出港股个股摘要",
+    )
+    add_days_argument(hk_parser)
+    hk_parser.set_defaults(func=run_group_summary("hk-stock"))
 
     us_parser = etf_subparsers.add_parser(
         "us",

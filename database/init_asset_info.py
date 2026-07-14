@@ -194,6 +194,34 @@ ASSETS = [
     },
 
     # =========================
+    # 港股个股
+    # =========================
+    {
+        "symbol": "hk_00700",
+        "name": "腾讯控股",
+        "asset_type": "HK_STOCK",
+        "asset_class": "EQUITY",
+        "market": "HK",
+        "data_source": "akshare_stock_hk_daily_sina",
+        "benchmark_symbol": None,
+        "benchmark_name": "恒生指数",
+        "is_active": 1,
+        "note": "港股互联网龙头公司",
+    },
+    {
+        "symbol": "hk_09992",
+        "name": "泡泡玛特",
+        "asset_type": "HK_STOCK",
+        "asset_class": "EQUITY",
+        "market": "HK",
+        "data_source": "akshare_stock_hk_daily_sina",
+        "benchmark_symbol": None,
+        "benchmark_name": "恒生指数",
+        "is_active": 1,
+        "note": "港股潮玩消费公司",
+    },
+
+    # =========================
     # 美国 ETF
     # =========================
     {

@@ -1,6 +1,6 @@
 # quant-kl
 
-一个简化的私人量化交易研究系统，主要用于下载中国市场 ETF / A 股行情、保存到本地 SQLite 数据库、计算技术指标、生成摘要、绘图，并验证简单的股债轮动策略。
+一个简化的私人量化交易研究系统，主要用于下载中国市场 ETF / A 股、港股及北美市场行情，保存到本地 SQLite 数据库，计算技术指标、生成摘要、绘图，并验证简单的股债轮动策略。
 
 > 本项目用于个人学习和研究，不构成任何投资建议。
 
@@ -11,14 +11,15 @@
 | 任务 | 命令 |
 | --- | --- |
 | 更新行情并计算技术指标 | `python -m quant e update` |
-| 查看中美 ETF、加拿大/美国个股和美国指数摘要 | `python -m quant e summary --days 5` |
+| 查看中国 ETF/个股、港股、加拿大个股和美国市场摘要 | `python -m quant e summary --days 5` |
 | 只看中国 ETF 摘要 | `python -m quant e cn --days 5` |
+| 只看港股个股摘要 | `python -m quant e hk --days 5` |
 | 只看美国 ETF 摘要 | `python -m quant e us --days 5` |
 | 查看美国风险观察组合 | `python -m quant e risk --days 5` |
 | 短期技术指标打分 | `python -m quant e score` |
 | 趋势 / 波动率打分示例 | `python -m quant e trend` |
 | 聚合周线并计算周线指标 | `python -m quant e weekly` |
-| 查看中美 ETF、个股和美国指数周线摘要 | `python -m quant e weekly-summary --days 5` |
+| 查看中国 ETF/个股、港股、加拿大个股和美国市场周线摘要 | `python -m quant e weekly-summary --days 5` |
 | 补全单个美国股票 / ETF / 指数历史行情 | `python -m quant e backfill NDQ` |
 | 生成每日交易研究日报 | `python -m quant report daily` |
 
@@ -33,13 +34,14 @@ alias q='python -m quant'
 ```bash
 q e update
 q e summary
+q e hk
 q e risk
 q e weekly
 q e weekly-summary
 q report daily
 ```
 
-日报默认读取本地 SQLite 数据库，不重新下载行情，生成到
+日报默认读取本地 SQLite 数据库，不重新下载行情，包含港股个股摘要并生成到
 `reports/daily/YYYY-MM-DD.md`。可以用 `--date` 指定日报日期，用
 `--output-dir` 指定输出目录。
 
@@ -70,10 +72,11 @@ python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 
 ## 功能概览
 
-- 使用 `akshare` 下载 ETF 和 A 股历史行情
+- 使用 `akshare` 下载 ETF、A 股和港股历史行情
 - 使用 SQLite (`database/quant.db`) 本地存储行情、技术指标、资产信息和数据更新日志
 - 支持按 `config/watchlist.py` 批量更新关注标的
 - 支持同步沪深 A 股股票池，并按股票池批量下载 A 股财务指标和三大报表
+- 支持 watchlist 中的港股个股：使用 AkShare 新浪港股接口下载前复权日线行情
 - 支持 watchlist 中的美国股票、ETF 和指数：当前只下载行情，优先使用 FMP Basic，失败时使用 Twelve Data
 - 支持 watchlist 中的加拿大银行相关股票：使用 EODHD 下载多伦多交易所日线行情，例如 `RY.TO` / `TD.TO`
 - 支持用 Cboe 官方 CSV 下载 VIX / VXN / VVIX / SKEW 日度市场风险指标
@@ -86,7 +89,7 @@ python -m data_fetch.update_financial_data --symbol sh600519 --start-year 2022
 - 计算均线、收益率、波动率、布林带、成交量均线、KDJ、CCI 等指标
 - 支持由日线行情聚合周线行情，并计算周级别均线、布林带、KDJ、CCI 等指标
 - 支持按分组输出最近交易日技术指标摘要、Cboe / FRED 市场指标均线和简单打分结果
-- 支持每日交易研究日报展示美国国债收益率曲线摘要和加拿大个股摘要
+- 支持每日交易研究日报展示美国国债收益率曲线摘要、港股和加拿大个股摘要
 - 支持估算 TD Science & Technology Fund - D (TDB3098) 单日涨跌幅
 - 绘制 K 线图、均线、布林带、KDJ、CCI、VIX / VXN / VVIX / SKEW 风险指标等图表
 - 回测沪深 300 ETF 与债券 ETF 的简单动态轮动策略
@@ -126,6 +129,7 @@ quant-kl/
 │   ├── fetch_cboe_market.py
 │   ├── fetch_financial.py
 │   ├── fetch_fred_treasury.py
+│   ├── fetch_hk_stock.py
 │   ├── fetch_us_market.py
 │   ├── fetch_stock.py
 │   ├── update_financial_data.py
@@ -170,7 +174,7 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `main.py` | 项目主入口。初始化数据库，读取 watchlist，更新 ETF / 股票 / 市场风险指标行情，并计算技术指标；不再自动输出摘要。 |
+| `main.py` | 项目主入口。初始化数据库，读取 watchlist，更新 ETF / A 股 / 港股 / 北美股票 / 市场风险指标行情，并计算技术指标；不再自动输出摘要。 |
 | `README.md` | 项目说明文档。 |
 | `requirements.txt` | Python 依赖清单。新环境可用 `pip install -r requirements.txt` 一次性安装运行依赖。 |
 | `.gitignore` | Git 忽略规则，忽略缓存、虚拟环境、本地数据、数据库和日志文件。 |
@@ -179,7 +183,7 @@ quant-kl/
 
 | 文件 | 用途 |
 | --- | --- |
-| `watchlist.py` | 维护关注标的列表。包括中国 ETF / A 股、加拿大股票、美国 ETF / 股票 / 指数、Cboe 风险指标和 FRED 美债收益率序列。 |
+| `watchlist.py` | 维护关注标的列表。包括中国 ETF / A 股、港股、加拿大股票、美国 ETF / 股票 / 指数、Cboe 风险指标和 FRED 美债收益率序列。 |
 | `__init__.py` | 将目录标记为 Python 包。 |
 
 ### `data_fetch/`
@@ -191,6 +195,7 @@ quant-kl/
 | `fetch_etf.py` | 使用 `akshare.fund_etf_hist_sina` 下载单只 ETF 历史行情。 |
 | `fetch_financial.py` | 使用 AkShare 下载并整理单只 A 股财务指标和三大报表。三大报表使用新浪端口，不使用东方财富端口。 |
 | `fetch_fred_treasury.py` | 使用 FRED CSV 下载 10Y / 2Y 美债收益率，并整理成 `price_data` 兼容字段。 |
+| `fetch_hk_stock.py` | 使用 AkShare `stock_hk_daily` 新浪接口下载港股前复权日线行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_us_market.py` | 使用 FMP Basic / Twelve Data 下载美国股票、ETF 和指数历史行情，并整理成 `price_data` 兼容字段。 |
 | `fetch_stock.py` | 使用 `akshare.stock_zh_a_daily` 下载单只 A 股前复权日线行情。 |
 | `update_financial_data.py` | 从 `stock_universe` 读取股票池，批量下载财务指标和三大报表，并写入 SQLite。 |
@@ -318,7 +323,7 @@ python main.py
 
 1. 初始化 SQLite 数据库
 2. 读取 `config/watchlist.py`
-3. 更新 ETF、股票、加拿大股票、美国指数、Cboe 风险指标和 FRED 美债收益率序列到 `price_data`
+3. 更新 ETF、A 股、港股、加拿大/美国股票、美国指数、Cboe 风险指标和 FRED 美债收益率序列到 `price_data`
 4. 将每个标的的更新结果写入 `data_update_log`
 5. 本地生成 `fred_t10y2y` 10Y-2Y 美债利差序列
 6. 为可计算的价格资产计算技术指标并写入 `indicators`
@@ -408,6 +413,10 @@ python -m data_fetch.update_financial_data --symbol sh600519 --force-refresh
 ```bash
 python -m data_fetch.update_financial_data --symbol sh600519
 ```
+
+### 港股行情数据
+
+港股个股使用 AkShare `stock_hk_daily` 新浪接口下载前复权日线行情。watchlist 中使用五位港股代码，例如腾讯控股写成 `00700`，入库时转换为 `hk_00700`。当前只下载行情，不下载港股公司财务数据。
 
 ### 北美股票、ETF 和市场风险指标数据
 
@@ -614,6 +623,7 @@ python -m analysis.summary --group cn-etf --days 5 --frequency weekly
 | --- | --- | --- |
 | `cn-etf` | 中国 ETF 指数类标的，来自 `WATCHLIST["ETF"]` | `python -m analysis.summary --group cn-etf` |
 | `cn-stock` | 中国股票，来自 `WATCHLIST["STOCK"]` | `python -m analysis.summary --group cn-stock` |
+| `hk-stock` | 港股个股，来自 `WATCHLIST["HK_STOCK"]` | `python -m analysis.summary --group hk-stock` |
 | `ca-stock` | 加拿大股票，来自 `WATCHLIST["CA_STOCK"]` | `python -m analysis.summary --group ca-stock` |
 | `us-etf` | 美国 ETF，来自 `WATCHLIST["US_ETF"]` | `python -m analysis.summary --group us-etf` |
 | `us-stock` | 美国股票，来自 `WATCHLIST["US_STOCK"]` | `python -m analysis.summary --group us-stock` |
@@ -744,6 +754,10 @@ WATCHLIST = {
     "STOCK": [
         "sh600519",
     ],
+    "HK_STOCK": [
+        "00700",
+        "09992",
+    ],
     "CA_STOCK": [
         "RY.TO",
         "TD.TO",
@@ -778,6 +792,7 @@ WATCHLIST = {
 内部 symbol 命名规则：
 
 - 中国 ETF / 股票保持 watchlist 里的原始 symbol，例如 `sh510310`。
+- 港股使用五位代码并转成 `hk_` 前缀，例如 `00700` 入库为 `hk_00700`。
 - 加拿大股票会转成 `ca_` 前缀，例如 `RY.TO` 入库为 `ca_ry_to`，`TD.TO` 入库为 `ca_td_to`。
 - 美国 ETF / 股票会转成 `us_` 前缀，例如 `QQQ` 入库为 `us_qqq`，`BRK-B` 入库为 `us_brk_b`。
 - 美国指数会转成对应指数名，例如 `NDQ` / Nasdaq Composite 入库为 `nasdaq`。

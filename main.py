@@ -26,6 +26,7 @@ manager = DataManager()
 # WATCHLIST 是一个字典，"ETF" 这个键对应 ETF 代码列表。
 etf_list = WATCHLIST["ETF"]
 stock_list = WATCHLIST["STOCK"]
+hk_stock_list = WATCHLIST.get("HK_STOCK", [])
 ca_stock_list = WATCHLIST.get("CA_STOCK", [])
 us_etf_list = WATCHLIST.get("US_ETF", [])
 us_stock_list = WATCHLIST.get("US_STOCK", [])
@@ -51,6 +52,14 @@ for symbol in stock_list:
 
     except Exception as e:
         print(f"股票 {symbol} 更新失败: {e}")
+
+for symbol in hk_stock_list:
+
+    try:
+        manager.update_hk_stock(symbol)
+
+    except Exception as e:
+        print(f"港股 {symbol} 更新失败: {e}")
 
 for ticker in ca_stock_list:
 
